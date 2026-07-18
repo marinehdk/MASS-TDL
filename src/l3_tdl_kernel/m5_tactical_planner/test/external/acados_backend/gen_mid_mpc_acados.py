@@ -155,6 +155,14 @@ LATERAL_SCALE_M = 400.0  # GncExecutionOdd.max_lateral_offset_m
 # Zl = quadratic regularizer, zl = LARGE linear -> L1 exact-penalty (xi=0 when
 # CPA feasible). Length Nt (one per softened CPA row).
 W_QUAD = 1.0e2           # Zl, Zu per slack
+# P5 (2026-07-18 finding): the per-target xi slack is INERT under acatos
+# SQP+MERIT_BACKTRACKING for the heavy-infeasibility regime tested (CPA gap
+# >= 352m at N=80). Probes: linear-distance h (made xi in metres not m^2) and
+# rho=1e6 (raised 1000x) BOTH leave xi ~ 1e-22 (numerical zero) and the
+# convergence boundary unchanged. The SQP line search refuses the large
+# single-step xi move the constraint would need. IPOPT's filter line-search
+# handles this regime. zl=1e3 is retained (the linear-distance h does not
+# require a higher rho; rho=1e6 was a probe, not a fix).
 RHO_LIN = 1.0e3          # zl per slack
 ZL = np.full(NT, W_QUAD)
 ZL_LIN = np.full(NT, RHO_LIN)

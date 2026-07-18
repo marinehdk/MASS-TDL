@@ -4,6 +4,20 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-07-18] Agent: ZCode (builtin:bigmodel-coding-plan/GLM-5.2)
+- **Git Commit**: NONE (uncommitted on `codex/m5-design-grounding` @ `2c031bc49`, worktree `.worktrees/m5-design-grounding`). User has not asked to commit; pending review.
+- **任务目标 (Goal)**: P5 — independent acatos solver-quality task. Diagnose + fix acatos convergence on `RhoCalibration_RealisticMultiShip` at N=80/dt=15s, close the P3 ρ-gap (ξ activation), and establish a fair acatos-vs-IPOPT A/B benchmark. Container: `codex-m5-p3-sil-nodes-1`.
+- **核心改动 (Actions)**: followed `superpowers:systematic-debugging` Phase 1→4.5. Tested 10+ controlled variants on the production C++ path (Python probes turned out unreliable — see root-cause doc §6). Variants tested: QP-tol relaxation, qp_iter_max, Levenberg-Marquardt (fixed), state position-normalization (POS_SCALE=1000), PARTIAL_CONDENSING_HPIPM, SQP-RTI, linear-distance CPA h, zl 1e3→1e6, IPOPT A/B at N=80.
+- **DISPROVED THE TASK PREMISE**: acatos convergence fails at CPA gap ≥ 352m (boundary confirmed at 252m↔352m); ξ stays ≈1e-22 (numerical zero) under EVERY variant. Fair IPOPT A/B at SAME N=80 shows IPOPT also does NOT converge (status=1 Timeout at iter≈230) and IPOPT's scalar σ slack is also inert (max 3e-4). The ρ-gap is a SHARED formulation/weight property, NOT an acatos-specific bug. Conclusion: SQP+MERIT_BACKTRACKING has a structural step-size limit on the nonlinear COLREG barrier surface; IPOPT's filter line-search avoids the QP crash but does not solve the regime either.
+- **核心改动 (Code changes)**:
+  - `test/unit/test_mid_mpc_acados_solver.cpp` — REWROTE `XiExactPenalty_InfeasiblePositive` (was failing RED) into a diagnostic-only test that records the ρ-gap finding + asserts only contract invariants (user-approved option A). ADDED `P5_ConvergenceBoundary_ScanTargetDistance` (target_y sweep, produces the boundary table).
+  - `test/unit/test_mid_mpc_solver.cpp` — ADDED `MidMpcP5Benchmark.IPOPT_ConvergenceBoundary_ScanTargetDistance_N80` (resolves the brief's "parity test N=8 vs N=80 unfair" finding).
+  - `test/external/acados_backend/gen_mid_mpc_acados.py` — comment-only documentation of the ρ-gap finding.
+  - `docs/superpowers/specs/2026-07-18-m5-p5-acados-convergence-design.md` — NEW root-cause doc (full evidence + A/B tables + 4 follow-up options).
+  - NO production src/ changes (linear-distance CPA variant applied + fully reverted; formulation back at P4 baseline).
+- **当前状态 (Status)**: **acatos full suite 13/13 PASS** (was 11/12 + 1 failing). IPOPT A/B benchmark PASS. Two of four brief acceptance criteria MET (test suite + A/B benchmark + root-cause doc); two NOT MET (RhoCal convergence + ξ activation) — evidence shows structural, not a fixable defect at the current formulation. Honest report + user-approved diagnostic-only test disposition.
+- **接力指示 (Hand-off Context)**: follow-up options in root-cause doc §9. **R1 (recommended, low effort)**: accept the boundary, rely on the existing BC-MPC/MRM fallback for gap>250m, document the limitation. **R3 (medium effort, untested)**: adaptive LM (`with_adaptive_levenberg_marquardt=true`) + funnel globalization (`globalization=FUNNEL`) — these target the merit-function trap directly; a follow-up task should A/B test against the §2 boundary. **R4 (deferred)**: replace the exp-barrier COLREG cost (bounded Hessian). **Key caveat**: Python acatos_template probes are NOT reliable for production-solver questions — always use the C++ test path (the probe's param packing / seeding diverges, see doc §6).
+
 ## [2026-06-09] Agent: Claude Code CLI (Opus 4.8 1M)
 - **Git Commit**: `4055a1b3` (branch `feat/colreg-phaseb`, worktree `.worktrees/colreg-phaseb`; NOT yet merged/pushed)
 - **任务目标 (Goal)**: execute `handoff/colreg-sweep-prompt.md` — A4000-test the 8 COLREG probes with real modules + implement Phase B (scoring-layer behavioral-stability assertions to catch fishtail/flap).

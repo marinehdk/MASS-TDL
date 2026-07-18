@@ -969,3 +969,100 @@ TEST(MidMpcDispatchV22, NoConditionMetDoesNotTriggerTakeover) {
   EXPECT_FALSE(compute_bc_mpc_take_over(0, 3, false, false));
   EXPECT_FALSE(compute_bc_mpc_take_over(2, 3, false, false));
 }
+
+// ===========================================================================
+// P5 (2026-07-18) — IPOPT A/B benchmark vs acatos at PRODUCTION horizon
+// (N=80, dt=15s, 1200s). The acatos backend fails to converge on this scenario
+// when the CPA gap exceeds ~252m (status=3 QP failure at SQP iter 8); the per-
+// target slack xi stays inert (rho-gap). This test establishes whether IPOPT,
+// running the SAME formulation at the SAME horizon, handles the
+// heavy-infeasibility regime that acatos cannot.
+//
+// WHY this is a FAIR comparison (resolves the task brief's "current parity
+// test IPOPT N=8 vs acatos N=80 is unfair" finding):
+//   - Same N=80, dt=15s (NOT N=8 like the legacy MidMpcNlpTest fixture).
+//   - Same own-ship, same target geometry (mirrors acatos boundary scan).
+//   - Same cpa_safe=1852m.
+// The IPOPT formulation is a DIFFERENT (N-stacked) implementation than the
+// acatos single-stage graph; both encode the same dynamics, costs, and CPA
+// constraints. This is the intended backend-comparison surface.
+//
+// OUTPUT: per-scenario (status, iter, cost, slack, duration_ms). No hard
+// assertions beyond "must produce a finite MidMpcSolution" -- the comparison
+// itself is the finding. Cited in docs/superpowers/specs/2026-07-18-m5-p5-
+// acados-convergence-design.md.
+// ===========================================================================
+namespace {
+MidMpcInput make_p5_boundary_input(double target_y_m) {
+  // Mirror of AcadosSolverTest::P5_ConvergenceBoundary_ScanTargetDistance.
+  // Own-ship at origin, heading north (psi=0), 5 m/s; one static target at
+  // (0, target_y_m); cpa_safe=1852m. route_weight=1.0 (active-leg normal ops).
+  MidMpcInput inp;
+  inp.own_ship.psi_rad = 0.0;
+  inp.own_ship.u_mps   = 5.0;
+  inp.own_ship.x_m     = 0.0;
+  inp.own_ship.y_m     = 0.0;
+  inp.planned_route_bearing_rad = 0.0;
+  inp.planned_speed_mps         = 5.0;
+  inp.constraints.heading_min_rad = -M_PI;
+  inp.constraints.heading_max_rad =  M_PI;
+  inp.constraints.speed_min_mps   = 0.0;
+  inp.constraints.speed_max_mps   = 15.0;
+  inp.constraints.cpa_safe_m      = 1852.0;
+  inp.constraints.own_ship_psi_rad = 0.0;
+  inp.route_frame_origin_x_m = 0.0;
+  inp.route_frame_origin_y_m = 0.0;
+  inp.route_frame_normal_x   = 0.0;
+  inp.route_frame_normal_y   = 1.0;
+  inp.lateral_scale_m        = 400.0;
+  inp.route_weight           = 1.0;
+  TargetState t;
+  t.id = 1;
+  t.x_m = 0.0;
+  t.y_m = target_y_m;
+  t.sog_mps = 0.0;
+  t.cog_rad = 0.0;
+  t.confidence = 1.0;
+  inp.targets.push_back(t);
+  return inp;
+}
+}  // namespace
+
+TEST(MidMpcP5Benchmark, IPOPT_ConvergenceBoundary_ScanTargetDistance_N80) {
+  // Build the IPOPT formulation at the SAME horizon as acatos (N=80, dt=15).
+  MidMpcNlpFormulation::Config cfg;
+  cfg.n_horizon   = 80;
+  cfg.dt_s        = 15.0;
+  cfg.w_colreg    = 30.0;
+  cfg.w_dist      = 10.0;
+  cfg.w_route     = 3.0;
+  cfg.w_vel       = 1.0;
+  cfg.max_targets = 16;
+  MidMpcNlpFormulation form(cfg);
+  form.build_symbolic_graph();
+  // Production-tolerant IPOPT options (mirror MidMpcSolver defaults). The
+  // timeout is generous: cold-start IPOPT on N=80 may take 5-30s per solve.
+  MidMpcSolver::IpoptOptions opts;
+  opts.max_iter  = 1500;     // N=80 needs more iterations than the N=8 default
+  opts.tol       = 1.0e-6;
+  opts.timeout_s = 60.0;
+  MidMpcSolver solver(form, opts);
+
+  std::cout << "[P5-IPOPT-BOUNDARY] N=80 dt=15 (same as acatos)\n"
+            << "[P5-IPOPT-BOUNDARY] target_y_m : status iter cost slack dur_ms\n";
+  for (const double ty : {2400.0, 2100.0, 1900.0, 1852.0, 1800.0, 1700.0,
+                          1600.0, 1500.0, 1200.0, 800.0}) {
+    const auto inp = make_p5_boundary_input(ty);
+    const auto sol = solver.solve(inp, nullptr);
+    const double gap = 1852.0 - ty;
+    std::cout << "[P5-IPOPT-BOUNDARY] ty=" << ty << " (gap=" << gap << "m)"
+              << " : status=" << static_cast<int>(sol.status)
+              << " iter=" << sol.ipopt_iterations
+              << " cost=" << sol.cost_total
+              << " slack=" << sol.cpa_slack
+              << " dur_ms=" << sol.solve_duration_ms << "\n";
+    // Always: finite solution (contract invariant).
+    EXPECT_TRUE(std::isfinite(sol.cpa_slack));
+    EXPECT_GE(sol.cpa_slack, 0.0);
+  }
+}

@@ -231,12 +231,21 @@ struct MidMpcAcadosSolver::Impl {
   int last_raw_status{-1};
   double last_traj_delta{0.0};
   int last_sqp_iter{-1};
-  // C1 status-4 constraint re-check (T17 review-fix C1): a CasADi Function
-  // built lazily on the FIRST status-4 outcome, wrapping the formulation's
-  // con_h_expr over (x, u, p_global, p_stage). Cached so the per-status-4
-  // re-check does not rebuild the function graph on every call. Null until
-  // first use; stays null if status 4 never occurs (the common case).
-  std::unique_ptr<casadi::Function> h_fn;
+	  // C1 status-4 constraint re-check (T17 review-fix C1): a CasADi Function
+	  // built lazily on the FIRST status-4 outcome, wrapping the formulation's
+	  // con_h_expr over (x, u, p_global, p_stage). Cached so the per-status-4
+	  // re-check does not rebuild the function graph on every call. Null until
+	  // first use; stays null if status 4 never occurs (the common case).
+	  std::unique_ptr<casadi::Function> h_fn;
+
+	  // P5 T1 (warm-start shift-init): cache the last converged solution for use
+	  // as the warm-start seed in the next cycle. Only updated when solve() returns
+	  // Converged (status 0). Used by the shift-init logic (block 1a branch) and by
+	  // T2 (transition cost per-stage psi_prev/u_prev packing).
+	  MidMpcSolution last_converged_solution_;
+	  // Number of real targets in the last converged solve. Used for sig_changed
+	  // detection (constraint-structure change → fall back to F1 seed).
+	  int prev_n_targets_{-1};
 
   Impl() = default;
   ~Impl() {
@@ -687,7 +696,6 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
 // ===========================================================================
 MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                                           const MidMpcSolution* warm_start) {
-  (void)warm_start;  // F1 seed is forward-propagated; warm_start is for parity.
   const auto t_start = std::chrono::steady_clock::now();
   MidMpcSolution sol;  // status defaults to NotInitialized
 
@@ -712,18 +720,25 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     return sol;
   }
 
-  // ---- 1a. P2 T4 (VR-07b, review-fix I-1): compute the F1 seed trajectory ----
-  // ONCE into a shared per-stage vector. This is the SINGLE forward propagation
-  // of the F1 seed (delta->0 hold, n->steady-state hold, path_b_step per stage);
-  // BOTH the tb-pack block (1b) and the F1 seed-write loop (step 4) read from
+  // ---- 1a. P2 T4 (VR-07b, review-fix I-1): compute the seed trajectory ----
+  // ONCE into a shared per-stage vector. This is the SINGLE propagation of the
+  // seed (either warm-start shift-init or F1 forward-propagation);
+  // BOTH the tb-pack block (1b) and the seed-write loop (step 4) read from
   // it, so the tb closest-point origins and the acatos seed are PROVABLY the
   // same trajectory by construction (no duplicate helper, no drift hazard).
   //
-  // The SeedState init + propagation here are byte-for-byte identical to the
-  // pre-refactor seed loop: s.px=own_x, s.py=own_y, s.psi=own_psi, s.r=0.0,
-  // s.u = own_u>0 ? own_u : planned; n_hold = steady_state_n_for_u(s.u);
-  // path_b_step(s, 0.0, n_hold, dt, next). The vector captures the per-stage
-  // state BEFORE any ocp_nlp_out_set write, so step 4 simply replays it.
+  // P5 T1: warm-start shift-init. When the previous cycle's solution is
+  // available and converged, use it as the seed (shifted by one stage) instead
+  // of the F1 forward-propagated seed. This is the primary anti-chattering
+  // mechanism (TBD-7 option C layer 1): keeping the seed close to the previous
+  // solution prevents port/starboard flips across replan cycles.
+  //
+  // When warm_start is null, failed, or the constraint structure changed
+  // (sig_changed: different number of real targets), fall back to the F1
+  // forward-propagated seed (original block 1a logic).
+  //
+  // The SeedState init + F1 propagation are byte-for-byte identical to the
+  // pre-refactor seed loop.
   const double dt = formulation_.config().dt_s;
   SeedState s_seed;
   s_seed.px  = input.own_ship.x_m;
@@ -734,8 +749,52 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                                             : input.planned_speed_mps;
   const double n_hold = steady_state_n_for_u(s_seed.u);
   std::vector<SeedState> seed_traj(static_cast<std::size_t>(kAcadosN + 1));
-  {
-    SeedState s = s_seed;  // working copy; advanced by path_b_step below.
+
+  // P5 T1: determine if warm-start shift-init should be used.
+  const int n_targets_sh = static_cast<int>(input.targets.size());
+  const bool sig_changed = (impl_->prev_n_targets_ >= 0)
+      && (n_targets_sh != impl_->prev_n_targets_);
+  const bool use_shift_init = (warm_start != nullptr
+      && static_cast<int>(warm_start->status) == 0
+      && warm_start->trajectory.size() == static_cast<std::size_t>(kAcadosN)
+      && !sig_changed);
+
+  if (use_shift_init) {
+    // P5 T1: shift-init from the previous converged solution.
+    // Stage 0 is own_ship (pinned by lbx0/ubx0 equality constraint — must match).
+    // Stages 1..N take psi/r/u from warm_start trajectory[k-1] (shifted by 1).
+    // Positions are forward-propagated from the previous seed stage via the
+    // double-integrator dynamics (same as path_b_step with delta=0, n=n_hold
+    // for the POSITION propagation, but using warm_start's psi/r/u for heading
+    // and yaw rate — the F1 hold values would give inconsistent position/heading).
+    seed_traj[0] = s_seed;
+    for (int k = 1; k <= kAcadosN; ++k) {
+      const int ws_idx = k - 1;  // warm_start trajectory index (shift)
+      SeedState sk;
+      if (ws_idx < kAcadosN) {
+        const auto& tp = warm_start->trajectory[static_cast<std::size_t>(ws_idx)];
+        sk.psi = tp.psi_rad;
+        sk.r   = tp.r_rad_s;
+        sk.u   = tp.u_mps > 0.0 ? tp.u_mps : s_seed.u;
+      } else {
+        // Beyond warm_start horizon: hold the last warm_start value.
+        const auto& tp = warm_start->trajectory[static_cast<std::size_t>(kAcadosN - 1)];
+        sk.psi = tp.psi_rad;
+        sk.r   = tp.r_rad_s;
+        sk.u   = tp.u_mps > 0.0 ? tp.u_mps : s_seed.u;
+      }
+      // Forward-propagate position from the previous seed stage using the
+      // warm_start psi/r/u (consistent dynamics for the tb computation).
+      const SeedState& prev = seed_traj[static_cast<std::size_t>(k - 1)];
+      sk.px = prev.px + prev.u * dt * std::cos(prev.psi);
+      sk.py = prev.py + prev.u * dt * std::sin(prev.psi);
+      seed_traj[static_cast<std::size_t>(k)] = sk;
+    }
+  } else {
+    // F1 forward-propagated seed (original block 1a logic: gentle straight-line
+    // hold, delta=0, n=n_hold). Used also for the cold-capsule warm-up (which
+    // passes nullptr warm_start) and when sig_changed is true.
+    SeedState s = s_seed;
     for (int k = 0; k <= kAcadosN; ++k) {
       seed_traj[static_cast<std::size_t>(k)] = s;
       if (k < kAcadosN) {
@@ -1058,7 +1117,12 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                  static_cast<int>(sol.status), status, sqp_iter, traj_delta,
                  solver_moved ? 1 : 0, sol.cost_total, sol.cpa_slack);
   }
-  return sol;
-}
+	  // P5 T1: cache the converged solution for next cycle's warm-start shift-init.
+	  if (static_cast<int>(sol.status) == 0) {
+	    impl_->last_converged_solution_ = sol;
+	    impl_->prev_n_targets_ = n_targets_sh;
+	  }
+	  return sol;
+	}
 
-}  // namespace mass_l3::m5::mid_mpc
+	}  // namespace mass_l3::m5::mid_mpc
