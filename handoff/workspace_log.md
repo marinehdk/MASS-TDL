@@ -4395,3 +4395,40 @@ P2(VR-07b Eriksen 相对跟踪 t_b + Huber)的最终验证门 T6。NO 生产代�
 1. **Full SIL ρ calibration**: orchestrator SSL certs needed to run imazu-*-ms scenarios in codex-m5-p3 compose project
 2. **XiExactPenalty_InfeasiblePositive honest FAIL**: documents known ρ gap; should be EXPECTED when formulation changes to linear-distance constraint
 3. **PerTargetBreakdown_OneTargetSlackPositive SUCCEED() escape**: Minor, retained for solver non-convergence tolerance
+
+## 2026-07-18 Agent / P4 M5 MPC Refactoring — Horizon 1200s + acados ON
+
+**Git commits**: `31dd4231d`..`05eaba2c6` (7 commits)
+**Branch**: `codex/m5-design-grounding`
+**Worktree**: `/home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding`
+
+### Task Goal
+Execute P4: VR-06b (horizon 1200s), VR-07b (废终端 C10/C11), VR-02 (淘汰 TailBuilder), timer 60s, 承诺前缀 180s, M5_USE_ACADOS default ON (含 carryover I-1~4).
+
+### Core Changes
+1. **T1**: dt benchmark — 3 settings, selected N=80/dt=15 (highest res under 10s budget)
+2. **T2**: horizon 1200s — kNDefault=80, params N=80/dt=15/horizon=1200s
+3. **T3**: abolish C10/C11 — nh 23→20, 3 constraint rows deleted
+4. **T4**: solve_timer 1Hz→60s
+5. **T5**: TailBuilder retired — build/append_tail deleted, types retained
+6. **T6**: committed prefix 180s — kCommittedPrefixDurationS=180
+7. **T7**: carryover I-1~4 — kMSge assert, S2 counter, short-TCPA guard, prefix softening
+8. **T8**: M5_USE_ACADOS default ON
+9. **T9 Critical fix**: acados wired into production dispatch (was compiled but never called)
+
+### dt Benchmark
+```
+N=60  dt=20  1200s: solve 1675ms | N=80  dt=15  1200s: solve 4006ms (SELECTED)
+N=120 dt=10  1200s: solve 10803ms (over 10s budget)
+```
+
+### 验收门 — All 9 PASSED ✅
+### Codex Review — 0 Critical (C1 fixed, Important items recorded)
+
+### Test Results
+- acados: 11/12 pass (1 pre-existing P3 ρ-gap)
+- parity: 3/3 pass | IPOPT: pass at N=80
+
+### Remaining Risk (Important)
+- I1: material-change version not fully gated (plan_id changes each cycle)
+- I2: ρ-gap constraint violations at 1200s horizon (pre-existing, not P4 regression)
