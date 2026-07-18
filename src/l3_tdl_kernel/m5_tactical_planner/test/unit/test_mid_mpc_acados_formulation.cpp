@@ -86,6 +86,105 @@ TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   EXPECT_EQ(static_cast<int>(ps.size()), form_.n_horizon() + 1);
 }
 
+// ===========================================================================
+// P5 T2: transition cost numerical oracle test.
+// Verifies that J_transition = w_trans * (K_Δχ·(ψ-ψ_prev)2 + K_ΔU·|u-u_prev|)
+// is computed correctly by the MX formulation expression. Uses standalone
+// build_transition_cost_() evaluation with known psi_prev/u_prev values.
+// ===========================================================================
+TEST_F(AcadosFormulationTest, TransitionCost_MixedL1L2Value) {
+  // Build a formulation with known config values.
+  MidMpcAcadosFormulation::Config cfg;
+  cfg.w_trans = 1.0;
+  cfg.k_dchi = 2.5;
+  cfg.k_du = 0.3;
+  MidMpcAcadosFormulation form(cfg);
+  form.build_symbolic_graph();
+
+  // Access the transition cost expression via graph handles.
+  const auto& x_sym = form.x_sym();
+  const auto& p_stage_sym = form.p_stage_sym();
+  const auto& J_trans  = form.J_transition();
+
+  // Create an MX Function over the formulation's internal expression.
+  casadi::Function f_trans("f_trans",
+      std::vector<casadi::MX>{x_sym, p_stage_sym},
+      std::vector<casadi::MX>{J_trans});
+
+  // Use the public kAcadosPerStage* offsets for the per-stage slots.
+  using mass_l3::m5::mid_mpc::kAcadosPerStagePsiPrevOff;
+  using mass_l3::m5::mid_mpc::kAcadosPerStageUPrevOff;
+  using mass_l3::m5::mid_mpc::kAcadosPerStageWTransActiveOff;
+
+  // Test case 1: psi == psi_prev, u == u_prev -> J_transition = 0.
+  {
+    casadi::DM x_val = casadi::DM::zeros(5, 1);
+    x_val(2) = 0.5;           // psi = 0.5 rad
+    x_val(4) = 5.0;           // u = 5 m/s
+    casadi::DM ps_val = casadi::DM::zeros(form.np_per_stage(), 1);
+    ps_val(kAcadosPerStagePsiPrevOff) = 0.5;  // psi_prev = 0.5
+    ps_val(kAcadosPerStageUPrevOff) = 5.0;    // u_prev = 5.0
+    ps_val(kAcadosPerStageWTransActiveOff) = 1.0;  // active
+
+    const auto result = f_trans(std::vector<casadi::DM>{x_val, ps_val});
+    const double J = static_cast<double>(result[0]->at(0));
+    EXPECT_NEAR(J, 0.0, 1e-12)
+        << "J_transition = 0 when psi==psi_prev and u==u_prev";
+  }
+
+  // Test case 2: psi differs by 0.1 rad from psi_prev, u same.
+  // J = 1.0 * (2.5 * 0.12 + 0.3 * |0|) = 0.025
+  {
+    casadi::DM x_val = casadi::DM::zeros(5, 1);
+    x_val(2) = 0.6;           // psi = 0.6 rad (diff = 0.1)
+    x_val(4) = 5.0;           // u = 5.0 m/s (diff = 0)
+    casadi::DM ps_val = casadi::DM::zeros(form.np_per_stage(), 1);
+    ps_val(kAcadosPerStagePsiPrevOff) = 0.5;
+    ps_val(kAcadosPerStageUPrevOff) = 5.0;
+    ps_val(kAcadosPerStageWTransActiveOff) = 1.0;
+
+    const auto result = f_trans(std::vector<casadi::DM>{x_val, ps_val});
+    const double J = static_cast<double>(result[0]->at(0));
+    const double expected = 1.0 * (2.5 * 0.1 * 0.1 + 0.3 * 0.0);
+    EXPECT_NEAR(J, expected, 1e-12)
+        << "J_transition = " << expected << " when dpsi=0.1, du=0";
+  }
+
+  // Test case 3: speed differs by 2 m/s from u_prev, psi same.
+  // J = 1.0 * (2.5 * 02 + 0.3 * 2.0) = 0.6
+  {
+    casadi::DM x_val = casadi::DM::zeros(5, 1);
+    x_val(2) = 0.5;           // psi = 0.5 rad (diff = 0)
+    x_val(4) = 7.0;           // u = 7.0 m/s (diff = 2.0)
+    casadi::DM ps_val = casadi::DM::zeros(form.np_per_stage(), 1);
+    ps_val(kAcadosPerStagePsiPrevOff) = 0.5;
+    ps_val(kAcadosPerStageUPrevOff) = 5.0;
+    ps_val(kAcadosPerStageWTransActiveOff) = 1.0;
+
+    const auto result = f_trans(std::vector<casadi::DM>{x_val, ps_val});
+    const double J = static_cast<double>(result[0]->at(0));
+    const double expected = 1.0 * (2.5 * 0.0 + 0.3 * 2.0);
+    EXPECT_NEAR(J, expected, 1e-12)
+        << "J_transition = " << expected << " when dpsi=0, du=2.0";
+  }
+
+  // Test case 4: w_trans_active = 0 -> J = 0 regardless of values.
+  {
+    casadi::DM x_val = casadi::DM::zeros(5, 1);
+    x_val(2) = 1.0;           // psi = 1.0 rad
+    x_val(4) = 10.0;          // u = 10.0 m/s
+    casadi::DM ps_val = casadi::DM::zeros(form.np_per_stage(), 1);
+    ps_val(kAcadosPerStagePsiPrevOff) = 0.0;
+    ps_val(kAcadosPerStageUPrevOff) = 0.0;
+    ps_val(kAcadosPerStageWTransActiveOff) = 0.0;  // inactive
+
+    const auto result = f_trans(std::vector<casadi::DM>{x_val, ps_val});
+    const double J = static_cast<double>(result[0]->at(0));
+    EXPECT_NEAR(J, 0.0, 1e-12)
+        << "J_transition = 0 when w_trans_active = 0";
+  }
+}
+
 // Yaw gain c_u is the VDM-direct value (P1b-1a T8 finding), not an invented
 // coefficient. Verified analytically == k_n_rudder * u^2 / izz_e at cruise.
 TEST_F(AcadosFormulationTest, YawGain_IsVdmDirect) {

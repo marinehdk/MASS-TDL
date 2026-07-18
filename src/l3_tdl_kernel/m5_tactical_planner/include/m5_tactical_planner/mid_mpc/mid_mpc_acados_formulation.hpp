@@ -283,6 +283,7 @@ class MidMpcAcadosFormulation {
   // and cross-check the lN anchor against a discriminating input where the
   // global route origin and the per-stage t_b DIFFER. Mirrors J_route().
   const casadi::MX& J_terminal() const noexcept { return J_terminal_; }
+  const casadi::MX& J_transition() const noexcept { return J_transition_; }
   const casadi::MX& x_sym() const noexcept { return x_; }
   const casadi::MX& u_sym() const noexcept { return u_; }
   const casadi::MX& p_global_sym() const noexcept { return p_global_; }
