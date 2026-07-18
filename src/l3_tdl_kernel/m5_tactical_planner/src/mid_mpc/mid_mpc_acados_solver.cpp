@@ -148,7 +148,12 @@ struct RowBounds {
 };
 
 RowBounds build_stage_row_bounds(int nh, bool lateral_active,
-                                 int n_targets) {
+                                 int n_targets, int stage_K, int prefix_K) {
+  // I-4 (P4 T7): colreg_prefix_softened — relax CPA rows for prefix stages (k<K)
+  // since the prefix geometry is frozen and CPA on frozen trajectory is handled
+  // by the committed prefix, not the current NLP iteration. Mirrors IPOPT's
+  // colreg_prefix_softened = true behavior.
+  const bool prefix_stage = (prefix_K > 0) && (stage_K < prefix_K);
   std::vector<double> lh(static_cast<std::size_t>(nh), 0.0);
   std::vector<double> uh(static_cast<std::size_t>(nh), kUhInf);
   // Helper: write a row by INTEGER offset (cast to size_type at the boundary
@@ -164,12 +169,14 @@ RowBounds build_stage_row_bounds(int nh, bool lateral_active,
   // CPA rows [2..17]: one-sided >= 0 for the n_targets REAL targets; relaxed
   // [-inf,+inf] for empty slots [n_targets..max_targets-1] (mirror IPOPT, which
   // emits CPA rows only for real targets). Clamp n_targets to [0, kAcadosNsh].
+  // I-4: For prefix stages (k<K), RELAX ALL CPA rows to [-inf,+inf]
+  // (colreg_prefix_softened semantics).
   const int n_t = std::max(0, std::min(n_targets, kAcadosNsh));
   for (int t = 0; t < kAcadosNsh; ++t) {
-    if (t < n_t) {
-      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // real target: >= 0
+    if (prefix_stage || t >= n_t) {
+      set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // relaxed
     } else {
-      set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // empty slot: relaxed
+      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // real target: >= 0
     }
   }
   // Direction / min_alt: deactivate unless lateral_active. P4: terminal C10/C11 abolished.
@@ -429,7 +436,8 @@ bool MidMpcAcadosSolver::debug_constraints_satisfied_after_solve(
   const int n_targets = static_cast<int>(
       std::min<std::size_t>(input.targets.size(),
                             static_cast<std::size_t>(formulation_.config().max_targets)));
-  return constraints_satisfied_(packed.first, packed.second, lateral_active, n_targets);
+  return constraints_satisfied_(packed.first, packed.second, lateral_active, n_targets,
+                                 input.prefix_active_k);
 }
 
 // ===========================================================================
@@ -528,7 +536,8 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
     const std::vector<double>& g,
     const std::vector<std::vector<double>>& ps,
     bool lateral_active,
-    int n_targets) {
+    int n_targets,
+    int prefix_K) {
   // ---- Lazy-build the h function on first use (cached in Impl::h_fn). ----
   // The graph is the formulation's con_h_expr (MX); the Function wraps it over
   // (x, u, p_global, p_stage) so we can evaluate it on the solved trajectory.
@@ -613,7 +622,8 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
     }
 
     // Per-stage bounds (mirror build_stage_row_bounds). P4: terminal C10/C11 abolished.
-    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets);
+    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets, k,
+                                          std::max(0, prefix_K));
 
     for (int r = 0; r < kAcadosNh; ++r) {
       const std::size_t rr = static_cast<std::size_t>(r);
@@ -841,8 +851,9 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   const int n_targets = static_cast<int>(
       std::min<std::size_t>(input.targets.size(),
                             static_cast<std::size_t>(formulation_.config().max_targets)));
+  const int prefix_K = std::max(0, input.prefix_active_k);
   for (int k = 0; k <= kAcadosN; ++k) {
-    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets);
+    RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets, k, prefix_K);
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,
                                   "lh", rb.lh.data());
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,
@@ -971,7 +982,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // status 1 -> Timeout; status 2 -> Infeasible; status 3/other -> NumFailure.
   MidMpcSolution::Status mapped = map_acados_status(status);
   if (status == 4 && solver_moved) {
-    const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets);
+    const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets,
+                                               input.prefix_active_k);
     if (csat) {
       mapped = MidMpcSolution::Status::Converged;
     } else {

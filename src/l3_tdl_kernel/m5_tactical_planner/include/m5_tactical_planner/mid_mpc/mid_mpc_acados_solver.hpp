@@ -172,7 +172,8 @@ class MidMpcAcadosSolver {
   [[nodiscard]] bool constraints_satisfied_(const std::vector<double>& g,
                                             const std::vector<std::vector<double>>& ps,
                                             bool lateral_active,
-                                            int n_targets);
+                                            int n_targets,
+                                            int prefix_K);
 
  public:
   // S1 safety gate accessor: the MidMpcSolver dispatch reads this to decide

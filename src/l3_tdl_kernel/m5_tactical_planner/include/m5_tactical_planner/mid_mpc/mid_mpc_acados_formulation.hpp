@@ -176,6 +176,11 @@ class MidMpcAcadosFormulation {
   static constexpr double kKProp = 500.0;
   static constexpr double kKDrag = 100.0;
   static constexpr double kMSge  = 145000.0 * (1.0 + 0.05);  // 152250.0
+  // I-1 static_assert: lock kMSge to manifest defaults (carryover P4 T7).
+  // If capability_manifest.hpp mass_kg or surge_added_mass_factor change,
+  // this formula must be updated in lockstep.
+  static_assert(kMSge == 152250.0,
+                "kMSge must equal 145000 * 1.05 = 152250. Update if manifest changes.");
   // Mass-normalized effective coefficients (baked into the graph so the surge
   // accel expression is (kKPropPerMass*n^2 - kKDragPerMass*u^2), i.e. already
   // divided by m_sge — mathematically identical to /m_sge on the raw force).

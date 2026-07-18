@@ -99,7 +99,7 @@ set(M5_ACADOS_CONSUMER_LIBS)
 #   4. Defines M5_USE_ACADOS=1 so Task 17's solver wrapper (#ifdef) compiles in.
 # The formulation source (mid_mpc_acados_formulation.cpp) is CasADi-only and is
 # already built under M5_HAS_CASADI (line 160); it is NOT re-added here.
-option(M5_USE_ACADOS "Build production acados M5 MidMpc backend (P1b-1b)" OFF)
+option(M5_USE_ACADOS "Build production acados M5 MidMpc backend (P4 default ON)" ON)
 set(M5_HAS_ACADOS OFF)
 if(M5_USE_ACADOS)
   find_package(acados QUIET REQUIRED)

@@ -131,7 +131,35 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
     // (NOTE: this gate does NOT clear acados_solver_ — the lifetime owner
     // decides that; dispatch only chooses the path for THIS cycle.)
     if (acados_solver_->warm_up_succeeded()) {
-      return acados_solver_->solve(input, warm_start);
+      // I-3 (P4 T7): short-TCPA guard — acados staging not validated for
+      // close-quarters (TCPA < 2000m). Fall back to IPOPT path which has
+      // mature constraint handling at short range.
+      bool short_tcpa = false;
+      for (const auto& tgt : input.targets) {
+        if (std::isfinite(tgt.tcpa_s) && tgt.tcpa_s < 2000.0 &&
+            std::isfinite(tgt.cpa_m) && tgt.cpa_m < input.constraints.cpa_safe_m * 2.0) {
+          short_tcpa = true;
+          break;
+        }
+      }
+      if (!short_tcpa) {
+        MidMpcSolution sol = acados_solver_->solve(input, warm_start);
+        // I-2 (P4 T7): S2 escalation counter — increment on non-converged
+        // acados solve so MRM-02 triggers correctly (was bypassing counter).
+        if (sol.status != MidMpcSolution::Status::Converged &&
+            sol.status != MidMpcSolution::Status::NotInitialized) {
+          ++consecutive_failures_;
+          if (consecutive_failures_ > kConsecutiveFailureEscalation) {
+            spdlog::critical("[M5][MidMPC][acados] {} consecutive failures; M7 MRM-02 escalation",
+                             consecutive_failures_);
+          }
+        } else {
+          consecutive_failures_ = 0;
+        }
+        return sol;
+      }
+      spdlog::warn("[M5][MidMPC] short TCPA (<2000s) detected — acados dispatch "
+                   "skipped, falling back to IPOPT.");
     }
     spdlog::warn("[M5][MidMPC] acados backend installed but warm-up did not "
                  "converge (warm_up_succeeded=false); falling back to IPOPT for "
