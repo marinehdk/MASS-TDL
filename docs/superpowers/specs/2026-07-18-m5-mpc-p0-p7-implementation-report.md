@@ -331,6 +331,51 @@ P7 的 σ=0 退化保证: 当 intent_confidence=0.95(highest)且 classification=
 - (b) short-TCPA<2000s guard 与 ho 场景 TCPA≈1620s 的冲突(要么放宽 guard,要么用更长 TCPA 场景验证)
 - (c) 12.5 s/solve 的实时性能(否则即便 dispatch 触达也跑不动 1 Hz 循环)
 
+#### 9.4.1 勘误(2026-07-19):gate-1 与 1Hz 两处错误归因
+
+> 后续诊断(`docs/superpowers/specs/2026-07-19-m5-acados-dispatch-gate2-safety-memo.md` §1.1)
+> 推翻了 §9.4 的两处归因。原 §9.4 结论保留以溯责;本节是修正。
+
+**勘误 #1 — gate-1 warm_up_succeeded=false 是误诊**:
+- §9.4 line 304 声称"生产节点 cold-capsule warm-up 未收敛"。**实测错误**。
+- 证据:容器日志全量 grep `cold-capsule warm-up did not converge`(warm-up 失败时唯一
+  会打的 ctor 警告,`mid_mpc_acados_solver.cpp:423-428`)= **0 条** → warm-up **确实收敛**
+  → `warm_up_succeeded_ = true`。
+- 误诊根因:`mid_mpc_solver.cpp:164-166` 的 `warm-up did not converge` dispatch warn 在
+  `if (warm_up_succeeded()) {}` **块外**,所以 warm-up 成功 + gate-2 命中时**两条 warn 同时打**,
+  误导 §9.4 把 gate-2 fallback 归因到 gate-1。这是 **dispatch 日志 bug**(已在 gate-2 改造
+  commit 中修复,warn 移进显式 `else` 子句)。
+- ho run 前 3 个周期(target 远、实时 TCPA ≥ 2000s):acados **被 dispatch** 了 3 次
+  (`status=1 acatos=1 sqp_iter=0`),gate-1 已放行 → 证实 gate-1 未触发。
+
+**勘误 #2 — 1Hz 实时性阻塞是误诊**:
+- §9.4 line 301、332 声称"12.5 s/solve 超 1 Hz M5 循环实时预算"。**前提错误**。
+- 证据:`mid_mpc_node.cpp:481` `solve_timer_ = create_timer(..., std::chrono::seconds(60), ...)`
+  —— **Mid-MPC replan 周期 = 60s**(VR-06,依据 Eriksen 实测),不是 1Hz。
+- "12.5 s/solve" 是 cold-capsule warm-up 24s + warm 9.7s + real 3s 三个连续 solve 的算术
+  平均,**不是生产稳态**。profiling 实测(`M5_ACADOS_PROFILE` 容器诊断):
+  | Solve | status | sqp_iter | wall |
+  |---|---|---|---|
+  | warm #1 (cold) | 2 Infeasible | 400 (max) | 24077ms |
+  | warm #2 | 0 Conv | 162 | 9726ms |
+  | real | 0 Conv | **50** | **3006ms** |
+- **warm 稳态 = 3s/solve**,占 Mid-MPC 60s 预算的 **5%**。cold-capsule warm-up 在 ctor
+  一次性发生,**不进生产 replan 周期**。实时性**不是阻塞**。
+
+**勘误 #3 — 保留的部分**:
+- §9.4 line 305 的 gate-2 short-TCPA<2000s 归因**仍然正确**。这是 acados 0 次触达的真因。
+- §9.4 G8 RED 结论(ho Min DCPA=1.2m,plan 4/5 EMPTY)**仍然有效** —— ho RED 是真实的,
+  根因链 line 318-323 中"acados 0 次触达 → 36× IPOPT fallback → IPOPT infeasible →
+  GeoFallback → 4/5 EMPTY"成立,只是归因到 gate-1 是错的。
+- §9.4 line 325-332 的"ho RED 根因不是 P7 stride-8 代码"边界声明**仍然有效**。
+
+**修正后的根因优先级**:
+- **P0(真因)**:gate-2 short-TCPA<2000s guard(已在 2026-07-19 改造为 CPA-based,见
+  safety memo + gate-2 dispatch redesign commit)。
+- ~~P1~~(误诊):gate-1 warm-up 失败 —— 实测 warm-up 收敛,无需处理。
+- ~~P2~~(误诊):12.5 s/solve 实时性 —— Mid-MPC 60s 预算,3s/solve 占 5%,不是阻塞。
+  QP 优化(FULL_CONDENSING → PARTIAL)是独立可选项,留待链路跑通后单独决策。
+
 ---
 
 ## 10. 待办与开放项
