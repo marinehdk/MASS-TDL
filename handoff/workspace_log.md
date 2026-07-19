@@ -4,6 +4,57 @@ This log coordinates task handoffs between different development interfaces (Cla
 
 ---
 
+## [2026-07-19] Agent: ZCode (codex/m5-design-grounding @ 531aa65b7)
+- **Git Commit**: `a02be2f50` (§9.4 勘误 docs) + `531aa65b7` (gate-2 dispatch redesign fix(m5) + memo v2 + 9 tests + review diff)
+- **任务目标 (Goal)**: 用户任务"M5 acatos 在 GNC 容器下的真实能力验证 + dispatch gate 治理"。按 systematic-debugging 走"诊断 → memo → 实施 → reviewer → SIL"。Phase 1-3a-b 完成,Phase 3c GNC SIL 暴露 gate-2 的二阶缺陷。
+- **工作树**: `.worktrees/m5-design-grounding`(分支 `codex/m5-design-grounding`,领先 l3-tdl 9 commits,未 push)。
+- **核心发现链(3 个 critical)**:
+  1. **CRITICAL #1 — §9.4 gate-1 warm-up 归因错误**:`cold-capsule warm-up did not converge` ctor 警告(唯一权威信号)在整个容器日志 0 条 → warm-up 实际收敛。`warm-up did not converge` dispatch warn 在 `if (warm_up_succeeded()) {}` 块外(日志 bug),warm-up 成功 + gate-2 命中时两条 warn 同时打,误导 §9.4 把 gate-2 fallback 归因到 gate-1。
+  2. **CRITICAL #2 — §9.4 "1Hz 实时性阻塞" 前提错误**:`mid_mpc_node.cpp:481` solve_timer = **60s**(VR-06 Eriksen 实测),不是 1Hz。"12.5s/solve" 是 cold 24s+warm 9.7s+real 3s 三 solve 算术平均;warm 稳态 = **3s/solve**,占 60s 预算的 **5%**。实时性不是阻塞。profiling 用 worktree-local `M5_ACADOS_PROFILE` 宏测得:98% 时间在 `time_qp_solver_call`(HPIPM QP condense+solve,N=80 FULL_CONDENSING 过大),per SQP iter 稳定 60ms。
+  3. **CRITICAL #3 — gate-2 CPA 改造后 acatos 在 ho 场景仍 0 次触达**:GNC 容器 ho SIL 实测 RED(Min DCPA 2.4m,ship 几乎没动,acatos 0 dispatch)。根因:`mid_mpc_node.cpp:635` active encounter 时 `cpa_safe` 动态升到 2500m(NLP soft barrier 升级);我的 gate-2 实现用了 `input.constraints.cpa_safe_m`(=2500),代码注释 line 638-641 明确说应该用 `cpa_hard_m`(=1852,不升级)。但即便用 cpa_hard_m=1852,**ho DCPA=0**(target 正对面开来,straight-line CPA=0)→ tgt.cpa_m ≈ 0 < 1852 → gate 仍恒触发。**CPA 判据在 DCPA=0 的 head-on 场景固有失效**。
+- **gate-2 改造产出(commit 531aa65b7,3 reviewer APPROVE)**:
+  - `mid_mpc_solver.hpp` (+45): `static constexpr kAcadosCpaGateMultiplier=1.0` + `static bool compute_bc_mpc_territory(input, cpa_safe_m)` 公共静态可测函数
+  - `mid_mpc_solver.cpp` (+28/-17): gate-2 从 TCPA<2000s 改为 CPA<cpa_safe×1.0;dispatch 日志 bug 修复(显式 `else` 子句)
+  - `test_mid_mpc_solver.cpp` (+111): 9 个新 `MidMpcSolverGate2` 测试(T1 边界精确/T2 多 target/T6 NaN/NoTargets/CustomCpaSafe 全 PASS)
+  - `docs/superpowers/specs/2026-07-19-m5-acados-dispatch-gate2-safety-memo.md` (434 行 memo v2)
+  - `docs/superpowers/reviews/2026-07-19-gate2-dispatch-redesign.diff` (249 行 reviewer diff 副本)
+  - 3 reviewer 评审实际 diff:M7 safety / GNC contract APPROVE-WITH-CONDITIONS;code review APPROVE-DIFF;0 blocking findings
+- **acatos profiling 关键证据**(worktree-local 未 commit 的 M5_ACADOS_PROFILE 宏):
+  | Solve | status | sqp_iter | wall | time_qp_call |
+  |---|---|---|---|---|
+  | warm #1 (cold) | 2 Infeasible | 400 (max) | 24077ms | 23673ms (98%) |
+  | warm #2 | 0 Conv | 162 | 9726ms | 9564ms (98%) |
+  | real test | 0 Conv | 50 | 3006ms | 2960ms (98%) |
+  - 98% 时间在 HPIPM QP condense+solve;per SQP iter 稳定 60ms,与 history 无关 → 瓶颈是单个 QP
+  - codegen 配置:`nlp_solver_type=SQP`(不是 RTI),`qp_solver=FULL_CONDENSING_HPIPM`,`qp_solver_cond_N=80`,`hessian_approx=EXACT`
+  - P5 报告 §2(`docs/superpowers/specs/2026-07-18-m5-p5-acatos-convergence-design.md`)已确立 **acatos 收敛边界在 CPA gap=252m↔352m 之间**(target_y - cpa_safe 边界)
+- **gate-2 治理方案(用户最后指示)**:"怎么修改为 solver 能收敛的 gate,不然不符合求解器的定位"。Gate 的正确定位应该是 **"判断 acatos 在这个几何下有没有机会收敛"**,不是"判断 CPA 距离 / ample-time"。P5 报告 §2 给的边界证据:CPA gap < 252m 收敛,> 352m 失败。但 ho DCPA=0 时 gap = cpa_safe - 0 ≈ 2500m(或 1852m),远超 352m 边界 → acatos 确实无法收敛 → gate 触发是**对的**。这暴露了 acatos 在 close-quarters DCPA≈0 场景的根本能力局限,不是 gate 设计问题。
+- **下游 L4 执行失败(独立问题,留 follow-up)**:GeoFallback 输出 turn_r=95m / tgt_psi=30-53° 的避让航点,但 ship 几乎没动(Max XTE 2.6m,Final XTE 2.4m)。这是 L4 guidance 没执行航点,与 M5 决策无关。
+- **当前状态 (Status)**:
+  - 2 commit 已落 worktree(`a02be2f50` + `531aa65b7`),未 push origin/l3-tdl(按 AGENTS.md local-first gate,SIL 未 GREEN)
+  - 9/9 gate-2 单测 PASS;55/55 IPOPT 回归 PASS;16/16 formulation + 11/11 OU + 4/4 acatos solver subset + 3/3 parity PASS
+  - ho SIL RED(Min DCPA 2.4m,acatos 0 dispatch);**gate-2 改造不够**,需进一步设计
+  - worktree-local 未 commit:M5_ACADOS_PROFILE 诊断宏(CMakeLists + mid_mpc_acados_solver.cpp,54 行,用户决定保留)
+- **待用户决策的核心方向**:
+  - gate-2 改成 solver 收敛可行性判据(用 P5 §2 的 gap=252m 边界)
+  - 但即便如此,ho DCPA=0 时 gap 远超边界,acatos 仍会被挡(对,因为它确实无法收敛)
+  - 真正的问题是 **acatos 在 close-quarters 的能力局限**,不是 gate 设计。要么:(a) 改 solver(P5 §3 R3 adaptive LM + funnel,medium effort untested);(b) 改场景几何(让初始 DCPA 大于 acatos 边界,只在远距测 acatos,近距交 BC-MPC);(c) 接受 acatos 不能 close-quarters,设计 hybrid dispatch(远距 acatos,近距 BC-MPC + GeoFallback)
+- **未提交**:`M5_ACADOS_PROFILE` 诊断宏(worktree-local,用户决定保留)。其余已 commit。
+- **接力指示 (Hand-off Context)**:
+  1. **下一步**:(用户决定)基于 P5 §2 收敛边界 + §3 R3 adaptive LM 提案,设计 "solver 收敛可行性 gate" memo v3 + reviewer + 实施 + 重跑 SIL
+  2. **container 状态**:`codex-gnc-validation` GNC profile stack up(sil-nodes + gnc-nodes + gnc-bridge + orchestrator + foxglove + martin-restarting);`codex-m5-p3` 诊断 stack 已 stop(腾出 18000 端口)
+  3. **证据路径**:
+     - `runs/gate2_ho_gnc/` (ho SIL RED 结果 + trace + trajectory_dashboard.png)
+     - `docs/superpowers/specs/2026-07-19-m5-acados-dispatch-gate2-safety-memo.md` (v2,已吸收 reviewer 修订)
+     - `docs/superpowers/reviews/2026-07-19-gate2-dispatch-redesign.diff`
+     - `docs/superpowers/specs/2026-07-18-m5-p5-acatos-convergence-design.md` §2 收敛边界证据(gate 设计依据)
+     - `docs/superpowers/specs/2026-07-18-m5-mpc-p0-p7-implementation-report.md` §9.4 + §9.4.1 勘误
+  4. **关键提醒**:
+     - 本机即 A4000(无 ssh/rsync 跨机);GNC stack 三容器 restart 模式:`<project>-sil-nodes-1` / `<project>-gnc-gnc-nodes-1` / `<project>-gnc-gnc-bridge-1`
+     - `NO_PROXY=127.0.0.1,localhost` 必须设置(curl/ROS2 否则被 https_proxy=127.0.0.1:7897 拦截)
+     - `--profile sil` 在 GNC 容器下 OK(直接调 run_6_scenarios.py);不要用 run_colregs_clean_8probe.py(镜像名 gate)
+     - profiling:容器 rebuild 加 `-DM5_ACADOS_PROFILE=ON` 查看每 solve 的 qp_call/lin/reg/sim/glob 分解;默认 OFF(生产路径)
+
 ## [2026-07-18] Agent: ZCode (builtin:bigmodel-coding-plan/GLM-5.2)
 - **Git Commit**: NONE (uncommitted on `codex/m5-design-grounding` @ `2c031bc49`, worktree `.worktrees/m5-design-grounding`). User has not asked to commit; pending review.
 - **任务目标 (Goal)**: P5 — independent acatos solver-quality task. Diagnose + fix acatos convergence on `RhoCalibration_RealisticMultiShip` at N=80/dt=15s, close the P3 ρ-gap (ξ activation), and establish a fair acatos-vs-IPOPT A/B benchmark. Container: `codex-m5-p3-sil-nodes-1`.
