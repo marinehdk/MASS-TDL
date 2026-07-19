@@ -131,18 +131,22 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
     // (NOTE: this gate does NOT clear acados_solver_ — the lifetime owner
     // decides that; dispatch only chooses the path for THIS cycle.)
     if (acados_solver_->warm_up_succeeded()) {
-      // I-3 (P4 T7): short-TCPA guard — acados staging not validated for
-      // close-quarters (TCPA < 2000m). Fall back to IPOPT path which has
-      // mature constraint handling at short range.
-      bool short_tcpa = false;
-      for (const auto& tgt : input.targets) {
-        if (std::isfinite(tgt.tcpa_s) && tgt.tcpa_s < 2000.0 &&
-            std::isfinite(tgt.cpa_m) && tgt.cpa_m < input.constraints.cpa_safe_m * 2.0) {
-          short_tcpa = true;
-          break;
-        }
-      }
-      if (!short_tcpa) {
+      // gate-2 (2026-07-19 redesign): CPA-based dispatch gate aligned with the
+      // BC-MPC Override boundary. When ANY target's predicted CPA is below the
+      // BC-MPC takeover threshold (cpa_safe × kAcadosCpaGateMultiplier = 1852m),
+      // the target is inside BC-MPC territory → fallback to IPOPT this cycle
+      // (do NOT compete with BC-MPC Override). Otherwise dispatch acatos in
+      // the ample-time window. See safety memo
+      // 2026-07-19-m5-acados-dispatch-gate2-safety-memo.md and
+      // MidMpcSolver::compute_bc_mpc_territory doc comment.
+      //
+      // Replaces the prior TCPA<2000s guard (P4 T7 I-3 staging guard) which was
+      // 33.3 min — exceeding ample-time literature upper bound (20 min) and
+      // ODD-A ample-time floor (12 min), blocking acatos in 12/12 standard
+      // COLREGs scenarios.
+      const bool bc_mpc_territory = compute_bc_mpc_territory(
+          input, input.constraints.cpa_safe_m);
+      if (!bc_mpc_territory) {
         MidMpcSolution sol = acados_solver_->solve(input, warm_start);
         // I-2 (P4 T7): S2 escalation counter — increment on non-converged
         // acados solve so MRM-02 triggers correctly (was bypassing counter).
@@ -158,12 +162,19 @@ MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
         }
         return sol;
       }
-      spdlog::warn("[M5][MidMPC] short TCPA (<2000s) detected — acados dispatch "
-                   "skipped, falling back to IPOPT.");
+      const double cpa_gate_m = input.constraints.cpa_safe_m * kAcadosCpaGateMultiplier;
+      spdlog::warn("[M5][MidMPC] target CPA < {:.0f} m (BC-MPC territory) — "
+                   "acados dispatch skipped, falling back to IPOPT.", cpa_gate_m);
+    } else {
+      // Log-bug fix (2026-07-19): the prior code emitted this warn
+      // UNCONDITIONALLY after the `if (warm_up_succeeded())` block, so it also
+      // fired when gate-2 triggered (warm-up had succeeded but CPA gate hit).
+      // That misled §9.4 of the P0-P7 report into attributing the fallback to
+      // a warm-up failure. Now emitted only on the actual warm-up-failure path.
+      spdlog::warn("[M5][MidMPC] acados backend installed but warm-up did not "
+                   "converge (warm_up_succeeded=false); falling back to IPOPT for "
+                   "this cycle.");
     }
-    spdlog::warn("[M5][MidMPC] acados backend installed but warm-up did not "
-                 "converge (warm_up_succeeded=false); falling back to IPOPT for "
-                 "this cycle.");
   }
 #endif
   const auto t_start = std::chrono::steady_clock::now();

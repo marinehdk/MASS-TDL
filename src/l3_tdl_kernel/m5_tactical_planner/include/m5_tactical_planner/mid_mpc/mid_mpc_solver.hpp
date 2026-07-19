@@ -16,6 +16,7 @@
 // bare new/delete.
 
 #include <casadi/casadi.hpp>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -105,6 +106,50 @@ class MidMpcSolver {
   // builds the formulation) can install the backend without friending.
   void set_acados_solver(std::unique_ptr<MidMpcAcadosSolver> solver) noexcept {
     acados_solver_ = std::move(solver);
+  }
+
+  // gate-2 (2026-07-19 redesign, see safety memo
+  // 2026-07-19-m5-acados-dispatch-gate2-safety-memo.md): CPA-based dispatch
+  // gate aligned with the BC-MPC Override boundary.
+  //
+  // Returns true when ANY target's predicted CPA (M2 linear) is below the
+  // BC-MPC takeover threshold (cpa_safe_m × kAcadosCpaGateMultiplier), meaning
+  // the target is inside BC-MPC territory and Mid-MPC should defer the cycle
+  // to the BC-MPC reactive layer (fallback to IPOPT this cycle, do NOT compete
+  // with BC-MPC Override). When false for ALL targets, acatos may dispatch in
+  // the ample-time window (CPA ≥ cpa_safe × multiplier).
+  //
+  // This is a DISPATCH GATE (chooses backend for this cycle), NOT a takeover
+  // decision. BC-MPC Override uses trajectory minimax worst_case_cpa
+  // (bc_mpc_collision_detector.cpp:100-114); this gate uses M2 linear cpa_m.
+  // The two can diverge by hundreds of meters in dynamic geometry — both fail
+  // safe (fallback + Override respectively); M7 hard-constraint CPA checker is
+  // the independent backstop.
+  //
+  // Replaces the prior TCPA<2000s guard (P4 T7 I-3 staging guard), which was
+  // 33.3 min — exceeding ample-time literature upper bound (20 min, Wang 2021
+  // [R17] + Frontiers 2021 [R2]) by 800 s and ODD-A ample-time floor (12 min,
+  // architecture design §3.3) by 1280 s, blocking acatos in 12/12 standard
+  // COLREGs scenarios (initial TCPA 666–1659 s).
+  //
+  // Exposed as a public static so the gate decision is unit-testable without
+  // an acatos mock (the dispatch site only forwards input + cpa_safe_m).
+  //
+  // kAcadosCpaGateMultiplier MUST stay aligned with BC-MPC
+  // override_cpa_multiplier (bc_mpc_branch_formulation.hpp:45 default 0.8;
+  // m5_params.yaml:14 overrides to 1.0). If the BC-MPC multiplier is changed
+  // in config, update this constant (or move both to a shared config source).
+  static constexpr double kAcadosCpaGateMultiplier = 1.0;
+
+  [[nodiscard]] static bool compute_bc_mpc_territory(const MidMpcInput& input,
+                                                      double cpa_safe_m) noexcept {
+    const double cpa_gate_m = cpa_safe_m * kAcadosCpaGateMultiplier;
+    for (const auto& tgt : input.targets) {
+      if (std::isfinite(tgt.cpa_m) && tgt.cpa_m < cpa_gate_m) {
+        return true;
+      }
+    }
+    return false;
   }
 #endif
 

@@ -430,6 +430,117 @@ TEST_F(MidMpcNlpTest, ConsecutiveFailuresResetOnSuccess) {
 }
 
 // ---------------------------------------------------------------------------
+// gate-2 (2026-07-19 redesign): CPA-based dispatch gate aligned with BC-MPC
+// Override boundary. See safety memo
+// 2026-07-19-m5-acados-dispatch-gate2-safety-memo.md.
+//
+// The gate decision (compute_bc_mpc_territory) is a pure function of
+// (input.targets[].cpa_m, cpa_safe_m); these tests exercise it in isolation
+// without needing an acatos mock (which the existing MidMpcAcadosSolver class
+// does not expose — its methods are non-virtual).
+//
+// Coverage (this file): T1 boundary precision (3 cases), T2 multi-target (3 cases),
+//                       T6 NaN defense, plus NoTargets and CustomCpaSafe.
+//
+// DEFERRED TO SIL / FUTURE MOCK INFRASTRUCTURE (see memo §5.1):
+//   T3 acatos failure → consecutive_failures + MRM-02 escalation (single-cycle)
+//      requires injecting a fake acatos solver returning non-Converged; the
+//      current MidMpcAcadosSolver has non-virtual methods and no test-only
+//      failure-injector. Mitigation: the consecutive_failures_ block
+//      (mid_mpc_solver.cpp:147-158) is byte-identical pre/post change, and
+//      ConsecutiveFailuresResetOnSuccess above covers the IPOPT path. SIL phase 3
+//      exercises the acatos path end-to-end.
+//   T4 single-cycle no IPOPT retry on acatos failure
+//      same mock dependency as T3.
+//   T5 log-bug fix stderr verification
+//      requires capturing spdlog stderr during dispatch; the fix is structurally
+//      obvious (warn moved into explicit `else` branch — see cpp diff).
+// ---------------------------------------------------------------------------
+#ifdef M5_USE_ACADOS
+namespace {
+
+MidMpcInput make_input_with_targets(std::vector<double> cpas_m) {
+  MidMpcInput inp = make_base_input();
+  inp.constraints.cpa_safe_m = 1852.0;  // matches kCpaSafeFallback_m
+  for (const double cpa : cpas_m) {
+    TargetState tgt;
+    tgt.cpa_m = cpa;
+    tgt.tcpa_s = 1000.0;  // arbitrary finite; gate-2 no longer reads TCPA
+    inp.targets.push_back(tgt);
+  }
+  return inp;
+}
+
+}  // namespace
+
+TEST(MidMpcSolverGate2, BoundaryPrecision_CpaBelowGate_TriggersFallback) {
+  // cpa_safe=1852, multiplier=1.0 → cpa_gate=1852. CPA=1851 (< gate) → territory.
+  MidMpcInput inp = make_input_with_targets({1851.0});
+  EXPECT_TRUE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, BoundaryPrecision_CpaAtGate_DispatchesAcatos) {
+  // CPA exactly 1852.0m: gate uses strict `<`, so 1852.0 does NOT trigger.
+  // This MUST match BC-MPC `best_cpa >= threshold → Resolved` semantics
+  // (bc_mpc_collision_detector.cpp:112-114): the boundary belongs to acatos.
+  MidMpcInput inp = make_input_with_targets({1852.0});
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, BoundaryPrecision_CpaAboveGate_DispatchesAcatos) {
+  MidMpcInput inp = make_input_with_targets({1853.0});
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, MultiTarget_OneInsideBoundary_TriggersFallback) {
+  // Loop breaks on first match; one inside + one outside → territory.
+  MidMpcInput inp = make_input_with_targets({5000.0, 1851.0});
+  EXPECT_TRUE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, MultiTarget_AllOutsideBoundary_DispatchesAcatos) {
+  MidMpcInput inp = make_input_with_targets({2000.0, 5000.0, 10000.0});
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, MultiTarget_FirstInsideShortCircuits) {
+  // Verify the early-break: first target inside, later ones don't matter.
+  MidMpcInput inp = make_input_with_targets({100.0, 99999.0, 99999.0});
+  EXPECT_TRUE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, NanCpa_DoesNotCrashAndDoesNotTrigger) {
+  // A NaN CPA in the target list must NOT crash (std::isfinite guard) and must
+  // NOT trigger gate-2 (the NaN target is treated as "no info"; the gate only
+  // fires on a finite CPA below threshold). If a sibling target is inside,
+  // gate-2 still triggers via that sibling.
+  MidMpcInput inp_nan_only = make_input_with_targets(
+      {std::numeric_limits<double>::quiet_NaN()});
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp_nan_only, 1852.0));
+
+  MidMpcInput inp_nan_plus_inside = make_input_with_targets(
+      {std::numeric_limits<double>::quiet_NaN(), 1000.0});
+  EXPECT_TRUE(MidMpcSolver::compute_bc_mpc_territory(inp_nan_plus_inside, 1852.0));
+}
+
+TEST(MidMpcSolverGate2, NoTargets_DispatchesAcatos) {
+  // Empty target list → no territory → acatos dispatches (matches old behavior
+  // where short_tcpa stayed false with no targets).
+  MidMpcInput inp = make_base_input();
+  inp.constraints.cpa_safe_m = 1852.0;
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp, inp.constraints.cpa_safe_m));
+}
+
+TEST(MidMpcSolverGate2, CustomCpaSafe_ScalesGateCorrectly) {
+  // If cpa_safe_m is configured to e.g. 1000m (ODD-B狭水道), gate scales with it.
+  MidMpcInput inp = make_input_with_targets({999.0});
+  EXPECT_TRUE(MidMpcSolver::compute_bc_mpc_territory(inp, 1000.0));
+  MidMpcInput inp2 = make_input_with_targets({1001.0});
+  EXPECT_FALSE(MidMpcSolver::compute_bc_mpc_territory(inp2, 1000.0));
+}
+#endif  // M5_USE_ACADOS
+
+// ---------------------------------------------------------------------------
 // FAIL-CLOSED on row registry / g_dim size mismatch (spec §3.8/§10.1 review High).
 // The registry (total_rows) MUST equal the formulation g_dim. A divergence is a
 // row-contract bug (registry and symbolic g out of sync). Previously solve()
