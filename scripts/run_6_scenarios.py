@@ -32,6 +32,20 @@ from tools.sil.colregs_scenario_audit import (
 from tools.sil.evidence_session import EvidenceSessionManager
 from tools.sil.trajectory_dashboard import generate_trajectory_dashboard
 
+# FAST verdict path (grafted from colregs-nlp-cpa-fix, 2026-07-19): a
+# post-hoc fast evaluator that slices the trace at the Task-1 lifecycle
+# boundary (first M4 RECOVERY) and composes a 16-check FastVerdict. It runs
+# AFTER the full trace is written, so it does not alter the sim loop. The
+# runner injects a ``fast_verdict`` block into report.json when --fast is set.
+# Import is lazy (module-level would couple every runner invocation to the
+# fast_evaluator dependency chain even when --fast is not used).
+_FAST_EVALUATOR_AVAILABLE = False
+try:
+    from tools.sil.colregs_fast_evaluator import evaluate_fast_trace as _evaluate_fast_trace
+    _FAST_EVALUATOR_AVAILABLE = True
+except ImportError:
+    _evaluate_fast_trace = None
+
 # Phase B: behavioral-stability scorer — standalone import (no polars/ROS2) so
 # this host-side runner can use the same logic the scoring package ships.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] /
@@ -2161,7 +2175,7 @@ def _archive_trace_artifact(
     return str(artifact_path)
 
 
-def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
+def _write_trace_evaluation_report(scenario_id, result, trace_report_dir, *, fast_mode=False):
     if not trace_report_dir:
         return None
     report_dir = Path(trace_report_dir)
@@ -2181,9 +2195,40 @@ def _write_trace_evaluation_report(scenario_id, result, trace_report_dir):
         trace_artifact_path=trace_artifact_path,
         no_action_trace_path=None,
     )
+    report_dict = report.to_json_dict()
+    # FAST verdict post-evaluation (grafted from colregs-nlp-cpa-fix):
+    # compose a 16-check FastVerdict by slicing the trace at the Task-1
+    # lifecycle boundary. This runs AFTER the full report is built, so it
+    # does not alter the sim loop or the full-lifecycle verdict. The block
+    # is added to report.json so the wrapper/UI can read both verdicts.
+    if fast_mode and _FAST_EVALUATOR_AVAILABLE and Path(trace_artifact_path).exists():
+        try:
+            import yaml as _yaml
+            scen_path = Path(f"scenarios/COLREGs测试/{scenario_id}.yaml")
+            with open(scen_path) as sf:
+                scenario_doc = _yaml.safe_load(sf)
+            with open(trace_artifact_path) as tf:
+                trace_rows = [json.loads(line) for line in tf if line.strip()]
+            fast_verdict = _evaluate_fast_trace(trace_rows, scenario_doc, report_dict)
+            report_dict["fast_verdict"] = fast_verdict.to_json_dict() if hasattr(
+                fast_verdict, "to_json_dict") else fast_verdict
+            print(f"[--fast] fast_verdict added to {scenario_id}.json "
+                  f"(overall={report_dict['fast_verdict'].get('overall_passed')})")
+        except Exception as exc:
+            # Fast verdict is diagnostic; never let it fail the run.
+            report_dict["fast_verdict_error"] = f"{type(exc).__name__}: {exc}"
+            print(f"[--fast] fast_verdict evaluation FAILED (non-fatal): {exc}",
+                  file=sys.stderr)
+    elif fast_mode and not _FAST_EVALUATOR_AVAILABLE:
+        report_dict["fast_verdict_error"] = (
+            "fast_evaluator dependency chain not available "
+            "(tools/sil/colregs_fast_evaluator.py import failed)"
+        )
+        print("[--fast] fast_evaluator unavailable; skipping fast_verdict",
+              file=sys.stderr)
     report_path = report_dir / f"{scenario_id}.json"
     with open(report_path, "w") as f:
-        json.dump(report.to_json_dict(), f, indent=2)
+        json.dump(report_dict, f, indent=2)
     return str(report_path)
 
 
@@ -2272,6 +2317,19 @@ def _parse_args(argv=None):
                              "modify scenario YAML.")
     parser.add_argument("--sim-rate", type=float, default=10.0,
                         help="Simulation rate multiplier passed to lifecycle/rate.")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help=(
+            "FAST verdict mode (grafted from colregs-nlp-cpa-fix): cap the sim "
+            "horizon at the M4 RECOVERY lifecycle boundary and compose a 16-check "
+            "FastVerdict by post-processing the trace. The full trace_evaluator "
+            "report is still written; a 'fast_verdict' block is ADDED to it. "
+            "If --total-time-override is also given, the smaller horizon wins. "
+            "Requires the fast_evaluator dependency chain (tools/sil/"
+            "colregs_fast_evaluator.py + colregs_fast_boundary.py)."
+        ),
+    )
     parser.add_argument("--deprecated-wrapper", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
@@ -2374,19 +2432,34 @@ def main(argv=None):
             return 2
     evidence_manager, evidence_session = _create_evidence_session(args, scenarios)
     args.trace_report_dir = str(evidence_session.session_dir)
+    # FAST mode horizon cap: --fast caps the sim at 900s so two 90s M5
+    # optimized-avoidance cadence windows can be judged without running the
+    # full encounter+return lifecycle. If --total-time-override is also set,
+    # the smaller of the two wins. The fast_verdict block (post-hoc
+    # evaluate_fast_trace) is added in _write_trace_evaluation_report.
+    fast_horizon_override = args.total_time_override
+    if getattr(args, "fast", False):
+        fast_cap = 900.0
+        if fast_horizon_override is None:
+            fast_horizon_override = fast_cap
+        else:
+            fast_horizon_override = min(float(fast_horizon_override), fast_cap)
+        print(f"[--fast] FAST mode: capping sim horizon at {fast_horizon_override:.1f}s "
+              f"(fast_verdict post-eval will be added to report.json)")
     for scen in scenarios:
         try:
             if args.restart_between_runs:
                 _restart_sil_nodes(args.restart_container, args.restart_settle)
             res = run_scenario(
                 scen,
-                total_time_override=args.total_time_override,
+                total_time_override=fast_horizon_override,
                 sim_rate=args.sim_rate,
                 trace_report_dir=args.trace_report_dir,
             )
             if res:
                 report_path = _write_trace_evaluation_report(
-                    scen, res, args.trace_report_dir)
+                    scen, res, args.trace_report_dir,
+                    fast_mode=getattr(args, "fast", False))
                 if report_path:
                     res["trace_evaluation_report_path"] = report_path
                     report_data = json.loads(Path(report_path).read_text())
