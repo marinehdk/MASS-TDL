@@ -4590,3 +4590,47 @@ timeout 580 python3 scripts/run_6_scenarios.py \
 4. **IPOPT infeasible 治理**(中,独立于 P7): x_dim=161 生产规模下 IPOPT 反复 infeasible 是 ho RED 的直接执行路径,与 acatos 是否 dispatch 无关
 
 **未提交**: 本对话所有改动(rebuild、evidence、报告 §9.4、本 handoff)均未 commit。是否提交等用户授权。
+
+## 2026-07-19 / ZCode / colregs-nlp-cpa-fix SIL 工具链选择性 graft 到 m5-design-grounding
+
+**任务目标**: 把 colregs-nlp-cpa-fix 分支(408 commit,从 l3-tdl 旧基 08d9b3c36 分叉)的 SIL 工具链(fast 模式)搬到 m5-design-grounding,同时保护 acados 重构不被 IPOPT 时代代码覆盖。
+
+**决策**: 不做全分支 merge(会产生 ~16 文件冲突,9 个是 M5 核心,正是 IPOPT 被 acados 替换的代码)。采取**选择性 graft + 文件级超集替换 + 最小 runner patch**。
+
+**核心改动**(1 commit `2884e9dbb`):
+- **3 个 net-new 文件**(tools/sil/): `trace_time.py`(453L)、`colregs_fast_boundary.py`(362L)、`colregs_fast_evaluator.py`(1000L)
+- **3 个超集替换**(colregs 是 m5 的 strict superset,函数列表 diff 验证):
+  - `colregs_artifact_consistency.py` 42L→813L(加 `check_trace_artifacts`,保留 m5 `check_consistency`)
+  - `colregs_module_oracle.py` 240L→772L(加 M1/M3/L4_GNC oracles,保留全部 m5 evaluate_*_oracle)
+  - `colregs_oracle_adapter.py` 494L→2425L(加 extract_m1_mrm_authority 等,保留全部 m5 extract_*)
+- **2 处有文档的刻意分歧**(避免依赖链污染 + 保留 m5 测试契约):
+  1. `extract_compiled`: 重写用 m5 `scenario_audit._encounter_classification`,避开 colregs `scenario_truth.compile_encounter`(会拖入 qualification_contract → suite_manifest → acceptance 整条依赖链)。输出两分支 key 的并集。
+  2. `extract_l4_actuation`: 保留 m5 标量时间实现(colregs 重写改了 route_accepted 语义,broke m5 L4 oracle 测试)。`extract_l4_actuation_strict` 保留不变。fast_evaluator 不消费此函数。
+- **Runner 最小集成**:
+  - `scripts/run_6_scenarios.py`: 加 `--fast` flag(caps sim 900s + 在 report.json 注入 `fast_verdict` 块,post-hoc `evaluate_fast_trace` 跑在 full trace 写完后,**不改 sim loop**)
+  - `scripts/run_colregs_clean_8probe.py`: 加 `--m5-short-avoidance-gate` flag(注入 `--total-time-override 900.0`)
+
+**关键约束**: acados 重构 100% 保护。所有改动都是 .py(M5 C++ 完全不碰),`git diff --name-only` 验证 0 个 M5 src/include 文件被改。容器内 acados 二进制不动。
+
+**测试验证**:
+- `tests/tools/`: 245/245 pass(全回归,0 新失败)
+- `tests/tools/test_colregs_fast_{boundary,evaluator}.py`: 42/42 pass
+- `tests/scripts/`: 64/65 pass(1 个 pre-existing failure 在 clean m5 上也 fail,与本 graft 无关)
+- 6 个 pre-existing failures(docker-compose/plugin 测试)在 clean m5 上同样 fail,本 graft 不引入新回归
+
+**明确跳过**(保护 acados 或避免高风险 infra 改动):
+- 所有触 `m5_tactical_planner/(src|include)` 的 commit:`a29962fe8`(NLP gate)、`1bc5ebca4`(recovery gates)、`06341d300`(fast avoidance handoff — mid_mpc_node.cpp +891 行)等
+- `525b6bc7c`(docker-compose)、`2808d247a`(sil_entrypoint.sh)、`f154aa2d2`(scenario YAML G0 qualification)
+
+**未做**(超出本任务范围):
+- 未跑 ho --fast 实际场景验证整链(需重启容器加载新 runner,但 acados dispatch gate 问题未解决,ho RED 根因不变)
+- 未把 colregs 分支的 M5 修复(IPOPT 时代的 committed_route/tail_builder 等)搬过来——它们已被 acados 重构取代,搬运会冲突
+
+**交付物**:
+- commit `2884e9dbb`(15 文件,+9160/-122)
+- `--fast` / `--m5-short-avoidance-gate` flag 在本 worktree 可用
+- fast_evaluator 16-check FastVerdict 评估能力可用(post-hoc,不改 sim loop)
+
+**下一步建议**:
+1. 若要验证 fast 模式在 ho 上的实际行为,需先解决 acados dispatch gate 问题(warm_up_succeeded=false + short-TCPA<2000s),否则 fast 模式评估的还是 IPOPT fallback 路径
+2. 若需要完整 colregs runner 集成(--run-name、sealed-run、trace-subdir 等 25 个 runner commit 的全部能力),需单独评估批次 C 全量 patch 的工作量
