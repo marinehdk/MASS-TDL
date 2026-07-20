@@ -409,6 +409,100 @@ ReachabilitySchedule compute_reachability_schedule(
 
   return sched;
 }
+
+// ===========================================================================
+// D1 witness (DP-04, VR-04): independent geometric check — committed prefix
+// CPA violation detection.
+//
+// Check whether the committed prefix trajectory (stages k=0..K-1, where K =
+// input.prefix_active_k) violates the hard CPA floor (cpa_hard_m) for ANY
+// target. This is a PURELY GEOMETRIC check, independent of the NLP solver's
+// output — it uses the committed prefix psi/u values from the input and the
+// target state, propagating own position via the same double-integrator
+// kinematics.
+//
+// Rationale: the committed prefix stages are FROZEN geometry (the NLP cannot
+// change them — they are equality-pinned). If the frozen geometry puts the
+// ship within 1852 m of any target, the current cycle CANNOT produce a safe
+// plan, regardless of what the suffix NLP computes. The solver's CPA rows for
+// prefix stages are bounds-softened (phases 1-2, DP-07), so the solver may
+// report Converged while the prefix geometry is unsafe — this witness catches
+// that gap.
+//
+// Returns: true  — prefix CPA safe (no violation)
+//          false — prefix CPA violated → caller should map to
+//                  NumericalFailure (NO_SAFE_PLAN → M7 MRM)
+//
+// This function is a pure geometric oracle: no solver state, no NLP graph,
+// no parameter vectors. It reads only from the input struct, making it
+// inherently independent of the solver backend.
+// ===========================================================================
+bool d1_prefix_cpa_witness(const MidMpcInput& input, double dt_s) {
+  const int32_t K = input.prefix_active_k;
+  if (K <= 0) {
+    return true;  // No committed prefix → trivially safe.
+  }
+  if (input.targets.empty()) {
+    return true;  // No targets → no CPA to check.
+  }
+
+  // Ensure the prefix trajectory vectors are consistent.
+  const std::size_t Ks = static_cast<std::size_t>(K);
+  if (input.prefix_psi_rad.size() < Ks ||
+      input.prefix_u_mps.size() < Ks) {
+    spdlog::warn("[M5][MidMPC][D1] prefix_psi_rad.size()={} < K={} or "
+                 "prefix_u_mps.size()={} < K={} — cannot verify; assuming safe",
+                 input.prefix_psi_rad.size(), K,
+                 input.prefix_u_mps.size(), K);
+    return true;  // Conservative: don't trigger false NO_SAFE_PLAN on data gap.
+  }
+
+  const double cpa_hard = input.constraints.cpa_hard_m;
+  if (cpa_hard <= 0.0) {
+    return true;  // No meaningful hard floor configured.
+  }
+
+  // Propagate own position through the committed prefix geometry.
+  double own_px = input.own_ship.x_m;
+  double own_py = input.own_ship.y_m;
+
+  for (int32_t k = 0; k < K; ++k) {
+    const double psi_k = input.prefix_psi_rad[static_cast<std::size_t>(k)];
+    const double u_k   = input.prefix_u_mps[static_cast<std::size_t>(k)];
+
+    // Move own ship forward one stage (same kinematics as the NLP).
+    own_px += u_k * dt_s * std::cos(psi_k);
+    own_py += u_k * dt_s * std::sin(psi_k);
+
+    // Check CPA against every target at this stage.
+    const double kdt = static_cast<double>(k + 1) * dt_s;  // time elapsed
+    for (const auto& tgt : input.targets) {
+      // Propagate target position (constant velocity from cog/sog).
+      const double tx = tgt.x_m
+          + tgt.sog_mps * std::cos(tgt.cog_rad) * kdt;
+      const double ty = tgt.y_m
+          + tgt.sog_mps * std::sin(tgt.cog_rad) * kdt;
+
+      const double dx = own_px - tx;
+      const double dy = own_py - ty;
+      const double dist_sq = dx * dx + dy * dy;
+      const double cpa_hard_sq = cpa_hard * cpa_hard;
+
+      if (dist_sq < cpa_hard_sq - 1e-6) {
+        // Violation: committed prefix stage k places the ship within the
+        // hard CPA floor of target tgt.id.
+        spdlog::warn(
+            "[M5][MidMPC][D1] PREFIX CPA VIOLATION at prefix stage k={} "
+            "target_id={}: dist={:.1f} m < cpa_hard={:.1f} m → NO_SAFE_PLAN",
+            k, tgt.id, std::sqrt(dist_sq), cpa_hard);
+        return false;  // Single violation → entire plan unsafe.
+      }
+    }
+  }
+
+  return true;  // All prefix stages safe.
+}
+
 }  // namespace
 
 // ===========================================================================
@@ -1499,6 +1593,21 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   }
   // NaN in the trajectory is ALWAYS a NumericalFailure, regardless of status.
   if (any_nan) {
+    mapped = MidMpcSolution::Status::NumericalFailure;
+  }
+
+  // D1 witness (DP-04, VR-04): independent geometric check on committed prefix
+  // CPA. Overrides ALL solver-derived statuses if the frozen prefix geometry
+  // violates the hard CPA floor (NO_SAFE_PLAN → M7 MRM). This check runs
+  // regardless of solver status (Converged, Infeasible, Timeout, etc.) because
+  // the committed prefix is frozen geometry independent of the solver output.
+  //
+  // Even when the solver returned Infeasible (status 2), the prefix violation
+  // is the ROOT CAUSE — the solver couldn't find a feasible trajectory partly
+  // because the frozen prefix makes the problem infeasible at stage 0. Mapping
+  // to NumericalFailure (D1 prefix) rather than Infeasible (QP) gives M7 a
+  // clearer signal: the committed prefix itself is unsafe, not just the QP.
+  if (!d1_prefix_cpa_witness(input, formulation_.config().dt_s)) {
     mapped = MidMpcSolution::Status::NumericalFailure;
   }
 
