@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from sil_orchestrator import evidence_routes
 from sil_orchestrator.evidence_library import routes as evidence_library_routes
+from sil_orchestrator.evidence_library.service import EvidenceRescanManager
 
 
 def _write_trace(path: Path, samples: int = 25, duration_s: float = 10.0) -> None:
@@ -150,6 +152,11 @@ async def test_frontend_finalize_and_rescan_share_primary_root_identity(tmp_path
         lambda **kwargs: kwargs["output_png"].write_text("png") or kwargs["output_png"],
     )
     monkeypatch.setattr(evidence_library_routes, "REPO_ROOT", repo)
+    monkeypatch.setattr(
+        evidence_library_routes,
+        "_rescan_manager",
+        EvidenceRescanManager(),
+    )
     _write_trace(runs / "trace_current.jsonl")
 
     app = FastAPI()
@@ -180,8 +187,18 @@ async def test_frontend_finalize_and_rescan_share_primary_root_identity(tmp_path
         evidence_id = fin.json()["evidence_id"]
 
         rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
-        assert rescan.status_code == 200
-        assert rescan.json()["ingested"] == 1
+        assert rescan.status_code == 202
+        for _ in range(100):
+            status = await client.get("/api/v1/evidence-library/rescan/status")
+            assert status.status_code == 200
+            snapshot = status.json()
+            if snapshot["state"] in {"completed", "failed"}:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("rescan did not reach a terminal state")
+        assert snapshot["state"] == "completed"
+        assert snapshot["ingested"] == 1
 
         listed = await client.get("/api/v1/evidence-library/sessions")
         assert listed.status_code == 200
