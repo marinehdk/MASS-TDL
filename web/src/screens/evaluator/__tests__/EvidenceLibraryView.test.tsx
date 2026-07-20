@@ -12,6 +12,9 @@ const apiMocks = vi.hoisted(() => ({
   sessionsQueryHistory: [] as EvidenceLibrarySessionsQuery[],
   sessionsIsFetching: false,
   sessionsIsLoading: false,
+  sessionsHasData: true,
+  sessionsIsError: false,
+  sessionsError: null as unknown,
   rescan: vi.fn(),
   rescanUnwrap: vi.fn(),
   rescanIsLoading: false,
@@ -45,9 +48,13 @@ vi.mock('../../../api/silApi', () => ({
     apiMocks.lastSessionsQuery = query ?? null;
     if (query) apiMocks.sessionsQueryHistory.push(query);
     return {
-    data: apiMocks.sessionsResponseOverride ?? buildSessionsResponse(query),
+    data: apiMocks.sessionsHasData
+      ? apiMocks.sessionsResponseOverride ?? buildSessionsResponse(query)
+      : undefined,
     isLoading: apiMocks.sessionsIsLoading,
     isFetching: apiMocks.sessionsIsFetching,
+    isError: apiMocks.sessionsIsError,
+    error: apiMocks.sessionsError,
     refetch: apiMocks.refetch,
   };
   },
@@ -296,6 +303,9 @@ beforeEach(() => {
   apiMocks.sessionsQueryHistory = [];
   apiMocks.sessionsIsFetching = false;
   apiMocks.sessionsIsLoading = false;
+  apiMocks.sessionsHasData = true;
+  apiMocks.sessionsIsError = false;
+  apiMocks.sessionsError = null;
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
   apiMocks.rescanIsLoading = false;
@@ -751,6 +761,32 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getByText('1 / 16')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(20);
     expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, page_size: 20 });
+  });
+
+  it('shows an explicit initial list error instead of false zero totals', () => {
+    apiMocks.sessionsHasData = false;
+    apiMocks.sessionsIsError = true;
+    apiMocks.sessionsError = { status: 503, data: { detail: 'index unavailable' } };
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('证据列表加载失败');
+    expect(screen.getByRole('alert')).toHaveTextContent('503');
+    expect(screen.queryByText('记录数: 0')).not.toBeInTheDocument();
+    expect(screen.queryByText('显示: 0')).not.toBeInTheDocument();
+  });
+
+  it('keeps the last page visible and reports a background refresh error', () => {
+    apiMocks.sessions = makeSessions(20);
+    apiMocks.sessionsIsError = true;
+    apiMocks.sessionsError = { status: 500, data: { detail: 'refresh failed' } };
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(20);
+    expect(screen.getByText('记录数: 20')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败，当前显示上次结果');
+    expect(screen.getByRole('alert')).toHaveTextContent('500');
   });
 
   it('requests the next server page without slicing current rows locally', () => {
@@ -2157,6 +2193,190 @@ describe('evidence library RTK invalidation', () => {
     return { silApi, store };
   };
 
+  it('serializes every evidence-list query parameter exactly', async () => {
+    let requestedUrl = '';
+    const fetchMock = vi.fn(async (request: Request) => {
+      requestedUrl = request.url;
+      return jsonResponse({
+        sessions: [],
+        total: 0,
+        filtered_total: 0,
+        page: 3,
+        page_size: 50,
+        total_pages: 1,
+        facets: { result: [], scenarioCount: [], mode: [], scenario: [], source: [], worktree: [] },
+      });
+    });
+    const query: EvidenceLibrarySessionsQuery = {
+      page: 3,
+      page_size: 50,
+      search: 'rule 15',
+      sort_key: 'scenarioCount',
+      sort_direction: 'asc',
+      result: 'failed',
+      scenario_count: 8,
+      mode: 'full',
+      scenario: 'colreg-rule15-cs',
+      source: 'front',
+      worktree: 'tree-a',
+    };
+    const { silApi, store } = await createApiStore(fetchMock);
+
+    try {
+      await store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query)).unwrap();
+
+      const params = Object.fromEntries(new URL(requestedUrl).searchParams.entries());
+      expect(params).toEqual({
+        page: '3',
+        page_size: '50',
+        search: 'rule 15',
+        sort_key: 'scenarioCount',
+        sort_direction: 'asc',
+        result: 'failed',
+        scenario_count: '8',
+        mode: 'full',
+        scenario: 'colreg-rule15-cs',
+        source: 'front',
+        worktree: 'tree-a',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('patches a successful single delete in a non-default page cache and preserves refetch error', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      page: 2,
+      page_size: 50,
+      search: 'rule15',
+      sort_key: 'scenario',
+      sort_direction: 'asc',
+      result: 'failed',
+      scenario_count: 1,
+      mode: 'full',
+      scenario: 'colreg-rule15-cs',
+      source: 'front',
+      worktree: 'tree-a',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return jsonResponse({ detail: 'refetch failed' }, 500);
+      }
+      return jsonResponse({
+        evidence_id: primarySession.evidence_id,
+        deleted_path: primarySession.deletion_target,
+        filesystem_deleted: true,
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(primarySession.evidence_id),
+      ).unwrap();
+      await waitFor(() => expect(getCount).toBe(2));
+      await waitFor(() => {
+        const cached = silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState());
+        expect(cached.isError).toBe(true);
+        expect(cached.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('leaves a non-default page cache unchanged when single delete fails', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      ...defaultSessionsQuery,
+      page: 2,
+      search: 'non-default',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({ sessions: [primarySession, secondarySession] });
+      }
+      return jsonResponse({ detail: 'delete failed' }, 500);
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await expect(store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(primarySession.evidence_id),
+      ).unwrap()).rejects.toBeDefined();
+      expect(getCount).toBe(1);
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState()).data?.sessions
+        .map((session) => session.evidence_id)).toEqual([
+          primarySession.evidence_id,
+          secondarySession.evidence_id,
+        ]);
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('patches only successful batch deletions in a non-default page cache', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      ...defaultSessionsQuery,
+      page: 4,
+      search: 'batch-page',
+      sort_key: 'source',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return jsonResponse({ detail: 'refetch failed' }, 500);
+      }
+      return jsonResponse({
+        requested: 2,
+        deleted: 1,
+        failed: 1,
+        results: [
+          {
+            evidence_id: primarySession.evidence_id,
+            deleted_path: primarySession.deletion_target,
+            filesystem_deleted: true,
+            status: 'deleted',
+          },
+          { evidence_id: secondarySession.evidence_id, status: 'failed', error: 'not deletable' },
+        ],
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(silApi.endpoints.batchDeleteEvidenceLibrarySessions.initiate({
+        evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
+      })).unwrap();
+      await waitFor(() => {
+        const cached = silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState());
+        expect(cached.isError).toBe(true);
+        expect(cached.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('refetches once after every fulfilled scan, including zero-change and error results', async () => {
     let scanResponse = jsonResponse({ detail: 'scan rejected' }, 500);
     let getCount = 0;
@@ -2373,7 +2593,8 @@ describe('evidence library RTK invalidation', () => {
     });
     const { silApi, store } = await createApiStore(fetchMock);
     const MountedSessions = () => {
-      const { data } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const { data: lastFulfilledData, currentData } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const data = currentData ?? lastFulfilledData;
       return data?.sessions.map((session) => (
         <button key={session.evidence_id} type="button" aria-label={`mounted batch delete ${session.evidence_id}`}>
           {session.evidence_id}
@@ -2411,7 +2632,7 @@ describe('evidence library RTK invalidation', () => {
       ]));
       await waitFor(() => {
         const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
-        expect(query.isSuccess).toBe(true);
+        expect(query.isError).toBe(true);
         expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
           secondarySession.evidence_id,
         ]);
@@ -2527,7 +2748,7 @@ describe('evidence library RTK invalidation', () => {
       resolveRefetch(jsonResponse({ detail: 'stale list refresh failed' }, 500));
       await waitFor(() => {
         const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
-        expect(query.isSuccess).toBe(true);
+        expect(query.isError).toBe(true);
       });
 
       const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
@@ -2585,7 +2806,8 @@ describe('evidence library RTK invalidation', () => {
     });
     const { silApi, store } = await createApiStore(fetchMock);
     const MountedSessions = () => {
-      const { data } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const { data: lastFulfilledData, currentData } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const data = currentData ?? lastFulfilledData;
       return data?.sessions.map((session) => (
         <button key={session.evidence_id} type="button" aria-label={`mounted delete ${session.evidence_id}`}>
           {session.evidence_id}
@@ -2625,7 +2847,7 @@ describe('evidence library RTK invalidation', () => {
       ]));
       await waitFor(() => {
         const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
-        expect(query.isSuccess).toBe(true);
+        expect(query.isError).toBe(true);
       });
 
       const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());

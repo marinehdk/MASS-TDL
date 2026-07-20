@@ -319,13 +319,6 @@ export interface EvidenceLibrarySessionsQuery {
   worktree?: string;
 }
 
-export const DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY: EvidenceLibrarySessionsQuery = {
-  page: 1,
-  page_size: 20,
-  sort_key: 'time',
-  sort_direction: 'desc',
-};
-
 export interface EvidenceLibrarySessionsResponse {
   sessions: EvidenceLibrarySession[];
   total: number;
@@ -577,33 +570,39 @@ export const silApi = createApi({
           return;
         }
 
-        const runningListQuery = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
-        );
-        if (runningListQuery) {
-          runningListQuery.abort();
-          await runningListQuery;
+        const cachedListQueries = silApi.util.selectInvalidatedBy(getState(), ['EvidenceLibrary'])
+          .filter((query) => query.endpointName === 'getEvidenceLibrarySessions');
+        for (const query of cachedListQueries) {
+          const runningListQuery = dispatch(
+            silApi.util.getRunningQueryThunk(
+              'getEvidenceLibrarySessions',
+              query.originalArgs as EvidenceLibrarySessionsQuery,
+            ),
+          );
+          if (runningListQuery) {
+            runningListQuery.abort();
+            await runningListQuery;
+          }
         }
 
-        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY, (draft) => {
-          draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
-        }));
-        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
-        const refresh = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
-        );
-        if (refresh) await refresh;
-
-        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select(
-          DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
-        )(getState());
-        if (refreshed.isError && refreshed.data) {
-          // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
-          await dispatch(silApi.util.upsertQueryData(
+        for (const query of cachedListQueries) {
+          dispatch(silApi.util.updateQueryData(
             'getEvidenceLibrarySessions',
-            DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
-            refreshed.data,
+            query.originalArgs as EvidenceLibrarySessionsQuery,
+            (draft) => {
+              draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
+            },
           ));
+        }
+        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+        for (const query of cachedListQueries) {
+          const refresh = dispatch(
+            silApi.util.getRunningQueryThunk(
+              'getEvidenceLibrarySessions',
+              query.originalArgs as EvidenceLibrarySessionsQuery,
+            ),
+          );
+          if (refresh) await refresh;
         }
       },
     }),
@@ -632,33 +631,39 @@ export const silApi = createApi({
             .filter((item) => item.status === 'deleted')
             .map((item) => item.evidence_id),
         );
-        const runningListQuery = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
-        );
-        if (runningListQuery) {
-          runningListQuery.abort();
-          await runningListQuery;
+        const cachedListQueries = silApi.util.selectInvalidatedBy(getState(), ['EvidenceLibrary'])
+          .filter((query) => query.endpointName === 'getEvidenceLibrarySessions');
+        for (const query of cachedListQueries) {
+          const runningListQuery = dispatch(
+            silApi.util.getRunningQueryThunk(
+              'getEvidenceLibrarySessions',
+              query.originalArgs as EvidenceLibrarySessionsQuery,
+            ),
+          );
+          if (runningListQuery) {
+            runningListQuery.abort();
+            await runningListQuery;
+          }
         }
 
-        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY, (draft) => {
-          draft.sessions = draft.sessions.filter((session) => !deletedIds.has(session.evidence_id));
-        }));
-        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
-        const refresh = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
-        );
-        if (refresh) await refresh;
-
-        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select(
-          DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
-        )(getState());
-        if (refreshed.isError && refreshed.data) {
-          // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
-          await dispatch(silApi.util.upsertQueryData(
+        for (const query of cachedListQueries) {
+          dispatch(silApi.util.updateQueryData(
             'getEvidenceLibrarySessions',
-            DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
-            refreshed.data,
+            query.originalArgs as EvidenceLibrarySessionsQuery,
+            (draft) => {
+              draft.sessions = draft.sessions.filter((session) => !deletedIds.has(session.evidence_id));
+            },
           ));
+        }
+        dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
+        for (const query of cachedListQueries) {
+          const refresh = dispatch(
+            silApi.util.getRunningQueryThunk(
+              'getEvidenceLibrarySessions',
+              query.originalArgs as EvidenceLibrarySessionsQuery,
+            ),
+          );
+          if (refresh) await refresh;
         }
       },
     }),
@@ -853,7 +858,7 @@ export const {
   useChangeLifecycleRateMutation,
   useStartEvidenceSessionMutation,
   useFinalizeEvidenceSessionMutation,
-  useGetEvidenceLibrarySessionsQuery: useGetEvidenceLibrarySessionsQueryGenerated,
+  useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
   useLazyGetEvidenceLibraryRescanStatusQuery,
   useDeleteEvidenceLibrarySessionMutation,
@@ -893,7 +898,3 @@ export const {
   useRemoveEncounterMutation,
   useClearEncountersMutation,
 } = silApi;
-
-export const useGetEvidenceLibrarySessionsQuery = (
-  query: EvidenceLibrarySessionsQuery = DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
-) => useGetEvidenceLibrarySessionsQueryGenerated(query);

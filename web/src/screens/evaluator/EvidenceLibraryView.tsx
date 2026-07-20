@@ -316,16 +316,23 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     worktree: filters.worktree || undefined,
   }), [debouncedSearch, filters, page, pageSize, sort]);
   const {
-    data,
+    data: lastFulfilledData,
+    currentData,
     isLoading,
     isFetching,
+    isError,
+    error,
     refetch: refetchSessions,
   } = useGetEvidenceLibrarySessionsQuery(sessionsQuery);
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
   const [getRescanStatus] = useLazyGetEvidenceLibraryRescanStatusQuery();
   const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
   const [batchDeleteSessions, batchDeleteState] = useBatchDeleteEvidenceLibrarySessionsMutation();
+  const data = currentData ?? lastFulfilledData;
   const sessions = data?.sessions ?? [];
+  const sessionsErrorStatus = error && typeof error === 'object' && 'status' in error
+    ? ` (${String(error.status)})`
+    : '';
   const [selectedSessionSnapshots, setSelectedSessionSnapshots] = useState<Map<string, SelectedSessionSnapshot>>(
     () => new Map(),
   );
@@ -1026,8 +1033,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
       >
         {isLoading && !data ? (
           <div>Loading evidence</div>
+        ) : isError && !data ? (
+          <div role="alert">证据列表加载失败，请重试。{sessionsErrorStatus}</div>
         ) : (
           <>
+            {isError ? (
+              <div role="alert" style={{ padding: '0 0 10px', color: 'var(--c-danger)' }}>
+                证据列表刷新失败，当前显示上次结果。{sessionsErrorStatus}
+              </div>
+            ) : null}
             <div style={{
               display: 'flex',
               alignItems: 'center',
