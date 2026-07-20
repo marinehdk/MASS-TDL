@@ -118,6 +118,25 @@ def _app_for(repo: Path, tmp_path: Path, monkeypatch) -> FastAPI:
     return app
 
 
+def _empty_session_page() -> dict:
+    return {
+        "sessions": [],
+        "total": 0,
+        "filtered_total": 0,
+        "page": 1,
+        "page_size": 20,
+        "total_pages": 1,
+        "facets": {
+            "result": [],
+            "scenarioCount": [],
+            "mode": [],
+            "scenario": [],
+            "source": [],
+            "worktree": [],
+        },
+    }
+
+
 async def _wait_for_rescan_terminal(client: AsyncClient) -> dict:
     for _ in range(100):
         snapshot = (await client.get("/api/v1/evidence-library/rescan/status")).json()
@@ -222,6 +241,62 @@ async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_sessions_route_forwards_complete_query(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_list_sessions(query, **_):
+        captured["query"] = query
+        return _empty_session_page()
+
+    monkeypatch.setattr(routes, "list_sessions", fake_list_sessions)
+    app = _app_for(tmp_path / "repo", tmp_path, monkeypatch)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/evidence-library/sessions"
+            "?page=2&page_size=50&search=rule15&sort_key=scenarioCount"
+            "&sort_direction=asc&result=failed&scenario_count=1&mode=avoidance"
+            "&scenario=colreg-rule15-cs&source=cli&worktree=tree-b"
+        )
+
+    assert response.status_code == 200
+    query = captured["query"]
+    assert query.page == 2
+    assert query.page_size == 50
+    assert query.search == "rule15"
+    assert query.sort_key == "scenarioCount"
+    assert query.sort_direction == "asc"
+    assert query.result == "failed"
+    assert query.scenario_count == 1
+    assert query.mode == "avoidance"
+    assert query.scenario == "colreg-rule15-cs"
+    assert query.source == "cli"
+    assert query.worktree == "tree-b"
+    assert response.json() == _empty_session_page()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "page=0",
+        "page_size=200",
+        "sort_key=bad",
+        "sort_direction=bad",
+        "result=bad",
+        "scenario_count=-1",
+        "limit=500",
+    ],
+)
+async def test_sessions_route_rejects_invalid_and_legacy_query(tmp_path, monkeypatch, query):
+    monkeypatch.setattr(routes, "list_sessions", lambda **_: _empty_session_page())
+    app = _app_for(tmp_path / "repo", tmp_path, monkeypatch)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/v1/evidence-library/sessions?{query}")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_rescan_starts_single_background_job_and_keeps_routes_responsive(
     tmp_path, monkeypatch
 ):
@@ -252,7 +327,7 @@ async def test_rescan_starts_single_background_job_and_keeps_routes_responsive(
         "_rescan_manager",
         service.EvidenceRescanManager(runner=blocked_rescan),
     )
-    monkeypatch.setattr(routes, "list_sessions", lambda **_: [])
+    monkeypatch.setattr(routes, "list_sessions", lambda *_args, **_kwargs: _empty_session_page())
 
     @app.get("/health")
     async def health():

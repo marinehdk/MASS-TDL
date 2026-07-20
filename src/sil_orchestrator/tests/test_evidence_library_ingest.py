@@ -218,7 +218,7 @@ def test_service_lists_result_summary_and_overview_png(tmp_path, monkeypatch):
     )
     conn.close()
 
-    sessions = list_sessions(repo_root=repo)
+    sessions = list_sessions(repo_root=repo)["sessions"]
 
     assert sessions[0]["passed_scenarios"] == 0
     assert sessions[0]["failed_scenarios"] == 1

@@ -10,9 +10,12 @@ import sqlite3
 import stat
 import threading
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import ceil
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -1283,19 +1286,247 @@ def _require_session_target(
         raise LookupError(f"Scenario not found: {scenario_id}")
 
 
-def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class EvidenceSessionListQuery:
+    page: int = 1
+    page_size: int = 20
+    search: str = ""
+    sort_key: str = "time"
+    sort_direction: str = "desc"
+    result: str | None = None
+    scenario_count: int | None = None
+    mode: str | None = None
+    scenario: str | None = None
+    source: str | None = None
+    worktree: str | None = None
+
+
+_MODE_LABELS = {
+    "debug": "调试验证",
+    "cohort": "同类验证",
+    "full": "完整验证",
+    "avoidance": "避碰验证",
+}
+_OUTCOME_LABELS = {"passed": "通过", "failed": "不通过", "unknown": "-"}
+_SOURCE_LABELS = {"cli": "CLI", "front": "Front"}
+
+
+def _session_list_mode(session: dict[str, Any]) -> str:
+    text = f"{session['session_id']} {session['suite']}".lower()
+    if any(marker in text for marker in ("debug", "dbg", "trace", "ctx")):
+        return "debug"
+    if "cohort" in text:
+        return "cohort"
+    if any(marker in text for marker in ("full", "clean8", "clean12")):
+        return "full"
+    if "fast" in text or session["suite"] == "single":
+        return "avoidance"
+    return "debug"
+
+
+def _session_list_source(source: Any) -> tuple[str, str]:
+    raw_source = str(source or "")
+    canonical = raw_source.lower()
+    if canonical in {"frontend", "front"}:
+        canonical = "front"
+    if not canonical:
+        canonical = "-"
+    return canonical, _SOURCE_LABELS.get(canonical, raw_source or "-")
+
+
+def _session_list_worktree(session: dict[str, Any], source_label: str) -> str:
+    if source_label == "Front":
+        return ""
+    if session.get("worktree_name"):
+        return str(session["worktree_name"])
+    session_path = str(session["session_path"])
+    marker = "/.worktrees/"
+    if marker in session_path:
+        return session_path.split(marker, 1)[1].split("/", 1)[0]
+    return str(session.get("branch") or "-")
+
+
+def _build_session_list_records(
+    rows: list[sqlite3.Row],
+    scenarios_by_evidence: dict[str, list[dict[str, Any]]],
+    overviews_by_evidence: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        session = dict(row)
+        if not _session_path_is_healthy(Path(session["session_path"])):
+            continue
+        scenario_rows = scenarios_by_evidence.get(str(session["evidence_id"]), [])
+        session["scenario_ids"] = [scenario["scenario_id"] for scenario in scenario_rows]
+        session["passed_scenarios"] = sum(
+            1 for scenario in scenario_rows if scenario["overall_pass"] == 1
+        )
+        session["failed_scenarios"] = sum(
+            1 for scenario in scenario_rows if scenario["overall_pass"] == 0
+        )
+        session["overview_pngs"] = overviews_by_evidence.get(str(session["evidence_id"]), [])
+        session["overview_png"] = session["overview_pngs"][0] if session["overview_pngs"] else None
+
+        scenario_count = len(scenario_rows)
+        if session["failed_scenarios"]:
+            outcome = "failed"
+        elif scenario_count and session["passed_scenarios"] == scenario_count:
+            outcome = "passed"
+        else:
+            outcome = "unknown"
+        mode = _session_list_mode(session)
+        if not session["scenario_ids"]:
+            scenario = "-"
+        elif scenario_count <= 2:
+            scenario = ", ".join(session["scenario_ids"])
+        else:
+            scenario = f"{session['scenario_ids'][0]} +{scenario_count - 1}"
+        source, source_label = _session_list_source(session.get("source"))
+        worktree = _session_list_worktree(session, source_label)
+        result_display = (
+            f"{session['passed_scenarios']}/{scenario_count} 通过"
+            if scenario_count > 1
+            else "通过"
+            if session["passed_scenarios"]
+            else "不通过"
+            if session["failed_scenarios"]
+            else "-"
+        )
+        search_values = [
+            session["evidence_id"],
+            session["session_id"],
+            scenario,
+            *session["scenario_ids"],
+            source_label,
+            session.get("source"),
+            session["suite"],
+            _MODE_LABELS[mode],
+            worktree,
+            session.get("worktree_name"),
+            session.get("branch"),
+            _OUTCOME_LABELS[outcome],
+            result_display,
+        ]
+        session.update(
+            {
+                "_outcome": outcome,
+                "_time": str(session.get("created_at") or session.get("ended_at") or session["session_id"]),
+                "_mode": mode,
+                "_scenario": scenario,
+                "_source": source,
+                "_source_label": source_label,
+                "_worktree": worktree,
+                "_search": "\n".join(str(value or "").casefold() for value in search_values),
+            }
+        )
+        records.append(session)
+    return records
+
+
+def _session_list_facets(eligible: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    fields = {
+        "result": ("_outcome", _OUTCOME_LABELS),
+        "scenarioCount": ("scenario_ids", None),
+        "mode": ("_mode", _MODE_LABELS),
+        "scenario": ("_scenario", None),
+        "source": ("_source", _SOURCE_LABELS),
+        "worktree": ("_worktree", None),
+    }
+    facets: dict[str, list[dict[str, Any]]] = {}
+    for facet_name, (field, labels) in fields.items():
+        values = (
+            [str(len(record[field])) for record in eligible]
+            if facet_name == "scenarioCount"
+            else [str(record[field]) for record in eligible if record[field] != ""]
+        )
+        counts = Counter(values)
+        ordered = sorted(counts, key=int if facet_name == "scenarioCount" else str.casefold)
+        facets[facet_name] = [
+            {
+                "value": value,
+                "label": labels.get(value, value) if labels else value,
+                "count": counts[value],
+            }
+            for value in ordered
+        ]
+    return facets
+
+
+def _filter_and_page_session_records(
+    eligible: list[dict[str, Any]],
+    query: EvidenceSessionListQuery,
+) -> tuple[list[dict[str, Any]], int, int]:
+    search = query.search.strip().casefold()
+    filtered = [
+        record
+        for record in eligible
+        if (not search or search in record["_search"])
+        and (query.result is None or record["_outcome"] == query.result)
+        and (query.scenario_count is None or len(record["scenario_ids"]) == query.scenario_count)
+        and (query.mode is None or record["_mode"] == query.mode)
+        and (query.scenario is None or record["_scenario"] == query.scenario)
+        and (query.source is None or record["_source"] == query.source)
+        and (query.worktree is None or record["_worktree"] == query.worktree)
+    ]
+    sort_keys: dict[str, Callable[[dict[str, Any]], Any]] = {
+        "time": lambda record: record["_time"],
+        "result": lambda record: _OUTCOME_LABELS[record["_outcome"]],
+        "scenarioCount": lambda record: len(record["scenario_ids"]),
+        "mode": lambda record: _MODE_LABELS[record["_mode"]],
+        "scenario": lambda record: record["_scenario"],
+        "source": lambda record: record["_source_label"],
+        "worktree": lambda record: record["_worktree"],
+    }
+    filtered.sort(key=lambda record: str(record["evidence_id"]))
+    filtered.sort(key=sort_keys[query.sort_key], reverse=query.sort_direction == "desc")
+    total_pages = max(1, ceil(len(filtered) / query.page_size))
+    normalized_page = min(max(query.page, 1), total_pages)
+    offset = (normalized_page - 1) * query.page_size
+    return filtered[offset : offset + query.page_size], len(filtered), normalized_page
+
+
+def list_sessions(
+    query: EvidenceSessionListQuery = EvidenceSessionListQuery(),
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
     config = load_effective_config(repo_root=repo_root)
-    result_limit = max(1, min(limit, 500))
     with closing(open_initialized(config)) as conn:
         rows = conn.execute(
-            "select * from sessions order by coalesce(created_at, ended_at, session_id) desc",
+            "select * from sessions",
         ).fetchall()
-        sessions = []
-        for row in rows:
-            session = dict(row)
+        scenario_rows = conn.execute(
+            "select evidence_id, scenario_id, overall_pass from scenarios order by evidence_id, scenario_id",
+        ).fetchall()
+        overview_rows = conn.execute(
+            """
+            select evidence_id, scenario_id, relative_path
+            from artifacts
+            where kind = 'trajectory_dashboard_png' and available = 1
+            order by evidence_id, scenario_id
+            """,
+        ).fetchall()
+        scenarios_by_evidence: dict[str, list[dict[str, Any]]] = {}
+        for row in scenario_rows:
+            scenarios_by_evidence.setdefault(str(row["evidence_id"]), []).append(dict(row))
+        overviews_by_evidence: dict[str, list[dict[str, Any]]] = {}
+        for row in overview_rows:
+            overview = dict(row)
+            evidence_id = str(overview.pop("evidence_id"))
+            overviews_by_evidence.setdefault(evidence_id, []).append(overview)
+
+        eligible = _build_session_list_records(rows, scenarios_by_evidence, overviews_by_evidence)
+        facets = _session_list_facets(eligible)
+        page_records, filtered_total, normalized_page = _filter_and_page_session_records(eligible, query)
+        if any(
+            not _session_path_is_healthy(Path(session["session_path"]))
+            for session in page_records
+        ):
+            eligible = _build_session_list_records(rows, scenarios_by_evidence, overviews_by_evidence)
+            facets = _session_list_facets(eligible)
+            page_records, filtered_total, normalized_page = _filter_and_page_session_records(eligible, query)
+
+        for session in page_records:
             session_path = Path(session["session_path"])
-            if not _session_path_is_healthy(session_path):
-                continue
             try:
                 _, resolved_target = _resolve_deletion_target(
                     session_id=str(session["session_id"]),
@@ -1312,30 +1543,18 @@ def list_sessions(limit: int = 200, repo_root: Path | None = None) -> list[dict[
                 session["deletion_allowed"] = True
                 session["deletion_target"] = str(resolved_target)
                 session["deletion_error"] = None
-            scenario_rows = conn.execute(
-                "select scenario_id, overall_pass from scenarios where evidence_id = ? order by scenario_id",
-                (session["evidence_id"],),
-            ).fetchall()
-            session["scenario_ids"] = [scenario["scenario_id"] for scenario in scenario_rows]
-            session["passed_scenarios"] = sum(1 for scenario in scenario_rows if scenario["overall_pass"] == 1)
-            session["failed_scenarios"] = sum(1 for scenario in scenario_rows if scenario["overall_pass"] == 0)
-            overview_rows = conn.execute(
-                """
-                select scenario_id, relative_path
-                from artifacts
-                where evidence_id = ?
-                  and kind = 'trajectory_dashboard_png'
-                  and available = 1
-                order by scenario_id
-                """,
-                (session["evidence_id"],),
-            ).fetchall()
-            session["overview_pngs"] = [dict(overview) for overview in overview_rows]
-            session["overview_png"] = session["overview_pngs"][0] if session["overview_pngs"] else None
-            sessions.append(session)
-            if len(sessions) >= result_limit:
-                break
-        return sessions
+            for private_field in [field for field in session if field.startswith("_")]:
+                session.pop(private_field)
+
+        return {
+            "sessions": page_records,
+            "total": len(eligible),
+            "filtered_total": filtered_total,
+            "page": normalized_page,
+            "page_size": query.page_size,
+            "total_pages": max(1, ceil(filtered_total / query.page_size)),
+            "facets": facets,
+        }
 
 
 def get_overview_png_path(evidence_id: str, scenario_id: str | None = None, repo_root: Path | None = None) -> Path:
