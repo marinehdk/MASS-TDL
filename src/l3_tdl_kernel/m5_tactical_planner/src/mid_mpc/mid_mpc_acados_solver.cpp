@@ -165,7 +165,7 @@ struct RowBounds {
 
 RowBounds build_stage_row_bounds(int nh, bool lateral_active,
                                  int n_targets, int stage_K, int prefix_K,
-                                 int k_minalt, int k_head) {
+                                 const ReachabilitySchedule& sched) {
   // I-4 (P4 T7): colreg_prefix_softened — relax CPA rows for prefix stages (k<K)
   // since the prefix geometry is frozen and CPA on frozen trajectory is handled
   // by the committed prefix, not the current NLP iteration. Mirrors IPOPT's
@@ -201,11 +201,12 @@ RowBounds build_stage_row_bounds(int nh, bool lateral_active,
   }
   // Direction / min_alt: deactivate unless lateral_active. Additionally,
   // reachability schedule delays hardening: min_alt active only at
-  // stage_K >= k_minalt; heading-box/direction active only at stage_K >= k_head
+  // stage_K >= sched.k_minalt; heading-box/direction active only at
+  // stage_K >= sched.k_head_earliest
   // (L1b: acados-path reachability schedule, mirroring IPOPT's
   // derive_row_bound_config §4.2/§4.6).
-  const bool minalt_active  = lateral_active && (stage_K >= k_minalt);
-  const bool heading_active = lateral_active && (stage_K >= k_head);
+  const bool minalt_active  = lateral_active && (stage_K >= sched.k_minalt);
+  const bool heading_active = lateral_active && (stage_K >= sched.k_head_earliest);
   auto set_row = [&](int idx, bool active) {
     if (active) {
       set_row_value(idx, 0.0, kUhInf);        // one-sided >= 0
@@ -234,62 +235,173 @@ bool derive_lateral_active(const MidMpcInput& input) {
 }
 
 // L1b reachability schedule (mirrors IPOPT derive_row_bound_config §4.2/§4.6).
-// Determines the EARLIEST stage at which min_alt and heading-box/direction
-// constraints may be hardened, based on the vessel's yaw dynamics.
-//   k_minalt: first stage where min_alt >= 0 constraint is active
-//   k_head:   first stage where direction >= 0 constraint is active
-// Stages before k_minalt/k_head have those rows relaxed (double-disabled).
-// The schedule is computed per-cycle (input may change role/direction/ROT).
-struct ReachabilitySchedule {
-  int k_minalt{0};  // default 0 = active from stage 0 (no delay)
-  int k_head{0};    // default 0 = active from stage 0 (no delay)
-};
+// Determines per-cycle constraint-hardening windows for min_alt, heading-box/
+// direction, and CPA floors, based on the vessel's yaw dynamics, M4 box-reach
+// contract, and target TCPA geometry.
+//
+//   k_minalt:        earliest stage where min_alt constraint is active (ROT-reach)
+//   k_head_earliest: earliest stage where direction constraint is active (box-reach)
+//   k_head_latest:   latest stage by which heading MUST be active (CPA deadline)
+//   k_cpa_suffix:    earliest stage where CPA floor is active (TCPA-based)
+//   minalt_box_infeasible: true if M4 heading box is too tight for min_alt
+//   direction_wrong_side:  true if own ship starts on opposite side of pref_dir
+//
+// Stages before k_minalt/k_head_earliest have those rows relaxed. If
+// k_head_earliest > k_head_latest, the ship physically cannot turn before the
+// CPA safety deadline — a diagnostic warning is emitted but the solve proceeds.
+// The CPA suffix hardening (k_cpa_suffix) is computed here as a function of
+// k_minalt + TCPA margin; the actual RowBoundConfig compositing with prefix_K
+// and the multi-phase (commit→soften→harden) schedule is the responsibility
+// of item ② (DP-07).
 
 ReachabilitySchedule compute_reachability_schedule(
     const MidMpcInput& input, double dt_s) {
   ReachabilitySchedule sched{};
+  sched.k_head_latest = kAcadosN;   // default: no CPA deadline
+  sched.k_cpa_suffix  = kAcadosN;   // default: suffix always soft
 
   // Only lateral give-way scenarios need the schedule (stand-on/HOLD/ReduceSpeed
   // have direction_disabled, so min_alt and direction rows are already
   // double-disabled by build_stage_row_bounds — schedule is a no-op).
   const bool need_schedule = derive_lateral_active(input);
   if (!need_schedule) {
-    return sched;  // k_minalt=0, k_head=0 — no delay needed
+    return sched;
   }
 
-  // k_minalt: ROT-reach formula (v2.1 §4.2).
-  //   rot_step = rot_max_rad_s * dt_s  (max yaw per stage)
-  //   k_minalt = ceil(min_alt / rot_step) - 1
-  // Minimum time to reach the COLREGs minimum alteration angle.
   const double rot_max = input.rot_max_rad_s;
-  const double dt = dt_s;
-  const double rot_step = rot_max * dt;
+  const double rot_step = rot_max * dt_s;
+
+  // ---------------------------------------------------------------------------
+  // 1. k_minalt: ROT-reach for min_alt, with box-infeasible detection.
+  //    Mirrors IPOPT derive_row_bound_config §4.2/§4.6 (lines 441-471).
+  // ---------------------------------------------------------------------------
   if (rot_step > 1e-9) {
+    // Base ROT-reach formula: ceil(min_alt / rot_step) - 1
     const double min_alt = input.colregs_min_alteration_rad;
     if (min_alt > 0.0) {
-      const int k_raw = static_cast<int>(
+      const int k_minalt_rot = static_cast<int>(
           std::ceil(min_alt / rot_step)) - 1;
-      sched.k_minalt = std::max(0, std::min(k_raw, kAcadosN));
+      int k_minalt_raw = std::max(0, std::min(k_minalt_rot, kAcadosN));
+
+      // Box-reach check (v2.2 §4.6): if M4 published heading_box_reachable
+      // and it is smaller than min_alt, the heading box physically limits
+      // the ship from ever reaching min_alt → minalt_box_infeasible.
+      const double box_reach_deg =
+          input.constraints.heading_box_reachable_from_psi0_deg;
+      if (box_reach_deg > 0.0) {
+        const double box_reach_rad = box_reach_deg * units::kRadPerDeg;
+        // Epsilon tolerance for M4/M5 float32→float64 conversion noise (~0.005 rad ≈ 0.3°)
+        constexpr double kBoxReachEpsilonRad = 0.005;
+        if (box_reach_rad < min_alt - kBoxReachEpsilonRad) {
+          sched.minalt_box_infeasible = true;
+          k_minalt_raw = kAcadosN;  // full soft — §13.1 BC-MPC dispatch signal
+        }
+      }
+      sched.k_minalt = k_minalt_raw;
     }
 
-    // k_head: heading-box reachability from M4 hint (if available).
-    //   heading_box_reachable_from_psi0_deg > 0 → M4 published reachable
-    //   k_head = ceil(box_reach_rad / rot_step) - 1
+    // -------------------------------------------------------------------------
+    // 2. k_head_earliest: heading-box / direction reachability.
+    //    Mirrors IPOPT derive_row_bound_config §4.4 (lines 487-523).
+    // -------------------------------------------------------------------------
+    // If M4 published heading_box_reachable, use it. Falls back to min_alt
+    // when M4 sentinel = 0 (conservative: heading not proven reachable).
     const double box_reach_deg =
         input.constraints.heading_box_reachable_from_psi0_deg;
     if (box_reach_deg > 0.0) {
       const double box_reach_rad = box_reach_deg * units::kRadPerDeg;
       const int k_head_raw = static_cast<int>(
           std::ceil(box_reach_rad / rot_step)) - 1;
-      sched.k_head = std::max(0, std::min(k_head_raw, kAcadosN));
+      sched.k_head_earliest = std::max(0, std::min(k_head_raw, kAcadosN));
+    } else {
+      // M4 did not publish heading_box_reachable (sentinel=0): use min_alt as
+      // a conservative proxy — heading not proven reachable until the ship can
+      // achieve min_alt (which is itself a necessary condition for any COLREGs
+      // maneuver).
+      if (min_alt > 0.0) {
+        const int k_head_raw = static_cast<int>(
+            std::ceil(min_alt / rot_step)) - 1;
+        sched.k_head_earliest = std::max(0, std::min(k_head_raw, kAcadosN));
+      }
     }
-    // If M4 did not publish heading_box_reachable (sentinel=0), k_head stays
-    // at 0 (active from stage 0 — safe fallback: heading box not reachable
-    // until proven reachable).
+
+    // Direction wrong-side detection (IPOPT §4.4, lines 487-523).
+    // If own ship starts on the opposite side of the preferred direction,
+    // g_dir[0] = pref_dir · XTE < 0 is an immovable HARD violation at stage 0.
+    // We need k_dir stages of lateral closure to flip the sign.
+    const double pref_dir_sign =
+        (input.colregs_preferred_direction ==
+            ColregsPreferredDirection::Starboard) ? +1.0
+      : (input.colregs_preferred_direction ==
+            ColregsPreferredDirection::Port)        ? -1.0
+                                                     :  0.0;
+    const double g_dir0 = pref_dir_sign * input.route_xte_m;
+    // Worst-case closure rate at the first reachable heading (one ROT step).
+    // Floor speed to 0.5 m/s to avoid division by ~0 for near-stationary ships.
+    const double u_eff = std::max(input.own_ship.u_mps, 0.5);
+    const double closure_rate = u_eff * dt_s * std::sin(rot_step);
+    if (g_dir0 < -1e-6 && closure_rate > 1e-6) {
+      sched.direction_wrong_side = true;
+      const int k_dir = static_cast<int>(
+          std::ceil(std::fabs(g_dir0) / closure_rate));
+      // If wrong-side, direction hardening must wait at least k_dir stages,
+      // so k_head_earliest is at least k_dir (max with existing box-based value).
+      sched.k_head_earliest = std::max(sched.k_head_earliest,
+          std::max(0, std::min(k_dir, kAcadosN)));
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. k_head_latest: t_latest_safe (CPA-based ample-time bound).
+    //    Latest stage by which heading MUST be achieved for safe CPA.
+    //    Mirrors IPOPT derive_row_bound_config §4.3 (lines 526-546).
+    // -------------------------------------------------------------------------
+    if (!input.targets.empty()) {
+      double tcpa_min = std::numeric_limits<double>::infinity();
+      for (const auto& t : input.targets) {
+        if (t.tcpa_s > 0.0) {
+          tcpa_min = std::min(tcpa_min, t.tcpa_s);
+        }
+      }
+      if (std::isfinite(tcpa_min)) {
+        // Safety margin: 2 stages for residual maneuver time after heading
+        // is achieved (ship may need additional time to open CPA).
+        constexpr int kMarginStages = 2;
+        const double t_cap = static_cast<double>(kAcadosN) * dt_s;
+        const double tcpa_eff = std::min(tcpa_min, t_cap);
+        int k_tcpa = static_cast<int>(std::ceil(tcpa_eff / dt_s)) - 1;
+        k_tcpa = std::max(0, std::min(k_tcpa, kAcadosN));
+        sched.k_head_latest = std::max(0, k_tcpa - kMarginStages);
+
+        // ---------------------------------------------------------------------
+        // 4. k_cpa_suffix: CPA suffix-hard deadline.
+        //    CPA floor hardens at max(k_minalt, k_tcpa_margin).
+        //    The full compositing with prefix_K (commit→soften→harden three-phase)
+        //    is item ② (DP-07); here we compute the raw schedule only.
+        // ---------------------------------------------------------------------
+        sched.k_cpa_suffix = std::max(sched.k_minalt, k_tcpa);
+      } else {
+        // All tcpa_s <= 0 (targets already past) → conservative all-hard.
+        sched.k_cpa_suffix = 0;
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Window cross-check: k_head_earliest > k_head_latest → warning.
+    //    This means the ship physically cannot turn before the CPA deadline.
+    //    The solver will naturally find an infeasible or suboptimal solution;
+    //    this diagnostic signal is for M7/BC-MPC escalation.
+    // -------------------------------------------------------------------------
+    if (sched.k_head_earliest > sched.k_head_latest) {
+      spdlog::warn(
+          "[M5][MidMPC][L1b] heading reachability window violation: "
+          "k_head_earliest={} > k_head_latest={} — ship cannot turn before "
+          "CPA deadline. minalt_box_infeasible={} direction_wrong_side={}",
+          sched.k_head_earliest, sched.k_head_latest,
+          sched.minalt_box_infeasible, sched.direction_wrong_side);
+    }
   }
-  // If rot_step is near-zero (stationary ship), both schedules stay at 0
-  // (active from stage 0 — conservative: don't delay constraints for a
-  // ship that may have other means of rotation).
+  // If rot_step is near-zero (stationary ship), all schedules stay at defaults
+  // (earliest=0 active from stage 0, k_head_latest=N, k_cpa_suffix=N).
 
   return sched;
 }
@@ -541,12 +653,10 @@ bool MidMpcAcadosSolver::debug_constraints_satisfied_after_solve(
   const int n_targets = static_cast<int>(
       std::min<std::size_t>(input.targets.size(),
                             static_cast<std::size_t>(formulation_.config().max_targets)));
+  const ReachabilitySchedule debug_sched = compute_reachability_schedule(input,
+      formulation_.config().dt_s);
   return constraints_satisfied_(packed.first, packed.second, lateral_active, n_targets,
-                                 input.prefix_active_k,
-                                 compute_reachability_schedule(input,
-                                     formulation_.config().dt_s).k_minalt,
-                                 compute_reachability_schedule(input,
-                                     formulation_.config().dt_s).k_head);
+                                 input.prefix_active_k, debug_sched);
 }
 
 // ===========================================================================
@@ -676,8 +786,7 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
     bool lateral_active,
     int n_targets,
     int prefix_K,
-    int k_minalt,
-    int k_head) {
+    const ReachabilitySchedule& sched) {
   // ---- Lazy-build the h function on first use (cached in Impl::h_fn). ----
   // The graph is the formulation's con_h_expr (MX); the Function wraps it over
   // (x, u, p_global, p_stage) so we can evaluate it on the solved trajectory.
@@ -772,7 +881,7 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
 
     // Per-stage bounds (mirror build_stage_row_bounds). P4: terminal C10/C11 abolished.
     RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets, k,
-                                          std::max(0, prefix_K), k_minalt, k_head);
+                                          std::max(0, prefix_K), sched);
 
     for (int r = 0; r < kAcadosNh; ++r) {
       const std::size_t rr = static_cast<std::size_t>(r);
@@ -1161,7 +1270,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   const ReachabilitySchedule sched = compute_reachability_schedule(input, dt_s);
   for (int k = 0; k <= kAcadosN; ++k) {
     RowBounds rb = build_stage_row_bounds(kAcadosNh, lateral_active, n_targets, k,
-                                          prefix_K, sched.k_minalt, sched.k_head);
+                                          prefix_K, sched);
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,
                                   "lh", rb.lh.data());
     ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k,
@@ -1370,8 +1479,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // acceptable for telemetry — those statuses already flag the cycle).
   if (status == 0 || (status == 4 && solver_moved)) {
     const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets,
-                                              input.prefix_active_k,
-                                              sched.k_minalt, sched.k_head);
+                                              input.prefix_active_k, sched);
     if (status == 4 && solver_moved) {
       if (csat) {
         mapped = MidMpcSolution::Status::Converged;

@@ -48,6 +48,20 @@
 
 namespace mass_l3::m5::mid_mpc {
 
+// L1b reachability schedule — per-cycle compute from vessel dynamics + M4
+// contract + target TCPA geometry. Mirrors IPOPT derive_row_bound_config.
+// Stages before k_minalt/k_head_earliest have those constraint rows softened;
+// k_head_latest is the CPA-deadline bound; k_cpa_suffix gates CPA floor hardening.
+// See compute_reachability_schedule() in the .cpp for the derivation logic.
+struct ReachabilitySchedule {
+  int k_minalt{0};
+  int k_head_earliest{0};
+  int k_head_latest{0};        // 0 = active from stage 0 (conservative default)
+  int k_cpa_suffix{0};         // 0 = active from stage 0 (conservative default)
+  bool minalt_box_infeasible{false};
+  bool direction_wrong_side{false};
+};
+
 // MidMpcAcadosSolver — production acatos backend for Mid-MPC (Path B 5-dim).
 //
 // Construct once per MidMpcSolver lifetime (the capsule is expensive to build).
@@ -174,8 +188,7 @@ class MidMpcAcadosSolver {
                                             bool lateral_active,
                                             int n_targets,
                                             int prefix_K,
-                                            int k_minalt,
-                                            int k_head);
+                                            const ReachabilitySchedule& sched);
 
  public:
   // S1 safety gate accessor: the MidMpcSolver dispatch reads this to decide
