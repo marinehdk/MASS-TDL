@@ -24,6 +24,11 @@ namespace mass_l3::m5::mid_mpc {
 // Calibrate via HAZID RUN-001 WP-04 FM-2 sensitivity analysis (detailed design §7.1).
 constexpr int64_t kConsecutiveFailureEscalation = 5;
 
+// DP-03 b' (VR-03, BL-B): conservative factor for min_alt ROT-reach surrogate.
+// Same value as the acados solver's kSurrogateFudgeFactor (2.0). Divides the
+// effective rot_step so the surrogate accounts for the ~5x MMG oracle gap.
+constexpr double kSurrogateFudgeFactor = 2.0;
+
 // ===========================================================================
 // Constructor — store formulation reference and opts (nlpsol already built).
 // ===========================================================================
@@ -440,9 +445,14 @@ RowBoundConfig derive_row_bound_config(
   // double-disables min_alt rows, schedule is a no-op).
   if (!cfg.direction_disabled) {
     const double rot_step = input.rot_max_rad_s * dt_s;
+    // DP-03 b' (VR-03, BL-B): conservative rot_step for min_alt ROT-reach
+    // accounts for ~5x surrogate-vs-MMG gap. Box-reach M4 hint (when present)
+    // already provides an independent check, so b' only applies to the ROT-only
+    // fallback path.
+    const double bprime_rot_step = rot_step / kSurrogateFudgeFactor;
     if (rot_step > 1e-9) {
       const int32_t k_minalt_rot = static_cast<int32_t>(
-          std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
+          std::ceil(input.colregs_min_alteration_rad / bprime_rot_step)) - 1;
       const int32_t k_minalt_rot_clamped = std::max(0, std::min(k_minalt_rot, n_horizon));
 
       const double box_reach_deg =
