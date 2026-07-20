@@ -49,11 +49,20 @@ production J_colreg/J_route/J_dist/J_vel/J_asym do NOT want):
 ====================  Constraints (mirror IPOPT, lbx/ubx for ROT/box)  =========
     con_h_expr = vertcat( prefix_psi (1): pact_pre*(psi - prefix_psi_at_k),
                           prefix_u   (1): pact_pre*(u_surge - prefix_u_at_k),
-                          CPA per-target (Nt rows, idxsh=[2..2+Nt-1] per-target
-                          xi slack, T7/T9 mixed L1/L2 Zl/zl),
+                          CPA per-target (Nt rows, residual=dx^2+dy^2-cpa_hard_m^2
+                          where cpa_hard_m=1852 fixed from G_CPA_HARD;
+                          Step5 方案 B: nsh=0, NO idxsh, NO slack -> TRUE hard),
                           direction (pref_dir*l[k]),
                           min_alt (pref_dir*(psi-own_psi) - min_alt) )
                           # P4: terminal C10/C11 abolished (long horizon)
+    Step5 方案 B (VR-01 final, 2026-07-20): CPA per-target rows are TRUE hard
+           (nsh=0, no slack). The soft 2500 aspiration is expressed ONLY by
+           J_colreg's exp barrier (cost_colreg reads G_CPA_SAFE, which the node
+           bumps to 2500 during conflict). The prior P3 per-target xi slack
+           (idxsh=[2..2+Nt-1]) is DELETED — it was structurally soft-by-
+           construction (BL-A: once a row enters idxsh, acatos subtracts the
+           slack unconditionally, defeating the hard 1852 floor). See
+           review/2026-07-20-step5-plan-b-nh20-agent_8ae45f72.md.
     T15 F2: prefix rows come FIRST (right after ROT-via-lbx, mirroring IPOPT's
            [ROT][prefix][CPA]... class order). lh=uh=0 (equality); pact_pre is a
            per-stage activation factor (1.0 for k<K, 0.0 for k>=K) so inactive
@@ -68,11 +77,12 @@ production J_colreg/J_route/J_dist/J_vel/J_asym do NOT want):
                              |delta| <= delta_max, |n| <= n_max (control).
 
 ====================  Param partition (T15 F2/F4 documented deviation)  =========
-GLOBAL (np_global = 154, P7 stride 8): 26 IPOPT head scalars (kIdx 0-25) +
+GLOBAL (np_global = 155, Step5 方案 B): 26 IPOPT head scalars (kIdx 0-25) +
     16x8 target block (intent_confidence, target_compliance, classification_code
-    added in stride slots 5-7 per P7). Slots 0-3 (own psi/u/x/y) are RESERVED
-    x0 seeds (F3) -- the solver writes them to ocp.constraints.x0; they are NOT
-    graph-referenced.
+    added in stride slots 5-7 per P7) + 1 appended kGIdxCpaHard slot (1852
+    fixed, read by the CPA per-target constraint residual -> true hard floor).
+    Slots 0-3 (own psi/u/x/y) are RESERVED x0 seeds (F3) -- the solver writes
+    them to ocp.constraints.x0; they are NOT graph-referenced.
 PER-STAGE (np_per_stage = 56 at Nt=16, P7): per-stage scalars stage k needs --
     [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre (F2),
     [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t] (F4),
@@ -80,7 +90,7 @@ PER-STAGE (np_per_stage = 56 at Nt=16, P7): per-stage scalars stage k needs --
     [37..37+Nt-1]sigma_pos_at_k[t] (P7: per-target OU sigma, Nt=16),
     [53]psi_prev_at_k, [54]u_prev_at_k, [55]w_trans_active_at_k (P5 T2).
     Set via m5_mid_mpc_acados_acados_update_params(capsule, stage, vals, np).
-The GLOBAL block is 154 (P7 expansion from stride 5->8 for intent/OU fields);
+The GLOBAL block is 155 (Step5 方案 B: 154 P7 + 1 appended cpa_hard slot);
 the per-stage block is 56 at Nt=16 (added Nt sigma_pos per P7).
 
 ====================  Solver opts (locked, P1b-1a T9 cost-read-back)  =========
@@ -153,9 +163,17 @@ K_DCHI = 2.5        # K_Δχ: heading-change penalty (L2, Eriksen tran_χ)
 K_DU = 0.3          # K_ΔU: speed-change penalty (L1, Eriksen tran_U)
 
 # ---- P3 per-target slack penalty (T7/T9 mixed L1/L2 exact-penalty). ----
-# Zl = quadratic regularizer, zl = LARGE linear -> L1 exact-penalty (xi=0 when
-# CPA feasible). Length Nt (one per softened CPA row).
-W_QUAD = 1.0e2           # Zl, Zu per slack
+# Step5 方案 B (VR-01 final, 2026-07-20): DEPRECATED/OBSOLETE — nsh=0, no slack.
+# Kept here for historical reference and to make the deletion of the
+# `ocp.constraints.idxsh = np.arange(NT) + 2` + `ocp.cost.Zl/zl/Zu/zu` assignment
+# in build_ocp() auditable. The P3 slack was structurally soft-by-construction:
+# once a row enters idxsh, acatos `bgh.c:1411-1417` subtracts the slack variable
+# from the residual unconditionally; raising Zl only makes the slack EXPENSIVE,
+# never forces it to zero (BL-A confirmation, BUG-L1-03). The CPA row is now a
+# TRUE hard floor (nsh=0, residual reads cpa_hard_m from G_CPA_HARD). The soft
+# 2500 aspiration is expressed ONLY by J_colreg's exp barrier (cost_colreg).
+# Do NOT re-enable these without re-deriving the hard/soft separation case.
+W_QUAD = 1.0e2           # Zl, Zu per slack (UNUSED — nsh=0)
 # P5 (2026-07-18 finding): the per-target xi slack is INERT under acatos
 # SQP+MERIT_BACKTRACKING for the heavy-infeasibility regime tested (CPA gap
 # >= 352m at N=80). Probes: linear-distance h (made xi in metres not m^2) and
@@ -164,11 +182,11 @@ W_QUAD = 1.0e2           # Zl, Zu per slack
 # single-step xi move the constraint would need. IPOPT's filter line-search
 # handles this regime. zl=1e3 is retained (the linear-distance h does not
 # require a higher rho; rho=1e6 was a probe, not a fix).
-RHO_LIN = 1.0e3          # zl per slack
-ZL = np.full(NT, W_QUAD)
-ZL_LIN = np.full(NT, RHO_LIN)
-ZU = np.full(NT, W_QUAD)
-ZU_LIN = np.full(NT, 0.0)
+RHO_LIN = 1.0e3          # zl per slack (UNUSED — nsh=0)
+ZL = np.full(NT, W_QUAD)      # UNUSED — nsh=0 (kept for audit; not assigned in build_ocp)
+ZL_LIN = np.full(NT, RHO_LIN) # UNUSED — nsh=0
+ZU = np.full(NT, W_QUAD)      # UNUSED — nsh=0
+ZU_LIN = np.full(NT, 0.0)     # UNUSED — nsh=0
 
 # ---- VR-07b T3/T5: Huber route-cost delta_h (literal, mirrors MX .cpp). ----
 # The MX side bakes cfg_.huber_delta_h=400.0 as a double into huber_mx_; for
@@ -185,7 +203,14 @@ N_MIN, N_MAX = 0.0, 12.0              # rpm box (control idx 1), rps
 # ---- Parameter partition layout (must match .cpp exactly). P7 stride 8 + sigma. ----
 NP_GLOBAL_HEAD = 26                    # kGIdx 0-25 (IPOPT kIdx 0-25)
 NP_GLOBAL_TARGETS = NT * 8             # P7: 128 (was 80, stride 5->8: intent_conf/compliance/class)
-NP_GLOBAL = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 154 (P7)
+# Step5 方案 B (VR-01 final): append kGIdxCpaHard at the END of the global block
+# (after the 26 head scalars + 128-slot target block) so neither the head scalars
+# nor the target block offsets change. The CPA per-target constraint residual now
+# reads cpa_hard_m from this slot (1852 fixed, never bumped) -> TRUE hard floor.
+# The soft 2500 aspiration is expressed ONLY by J_colreg's exp barrier (still
+# reads G_CPA_SAFE). See review/2026-07-20-step5-plan-b-nh20-agent_8ae45f72.md.
+G_CPA_HARD = NP_GLOBAL_HEAD + NP_GLOBAL_TARGETS   # 154 (appended; mirror kAcadosGIdxCpaHard)
+NP_GLOBAL = G_CPA_HARD + 1                         # 155 (P7 + Step5 方案 B appended slot)
 # Per-stage (P7): [0]prefix_psi_at_k, [1]prefix_u_at_k, [2]pact_pre,
 #            [3..3+Nt-1]target_x_at_k[t], [3+Nt..3+2Nt-1]target_y_at_k[t],
 #            [35]tb_x_at_k, [36]tb_y_at_k,
@@ -312,7 +337,15 @@ def build_model() -> AcadosModel:
     # psi==prefix_psi, u_surge==prefix_u; pact_pre=0 for k>=K -> 0==0 (inactive).
     h_prefix_psi = pact_pre() * (psi - prefix_psi_at_k())
     h_prefix_u = pact_pre() * (u_surge - prefix_u_at_k())
+    # Step5 方案 B (VR-01 final): CPA row residual reads cpa_hard_m from the
+    # appended G_CPA_HARD slot (1852 fixed, never bumped) -> TRUE hard floor.
+    # Combined with nsh=0 (no idxsh, no slack allocation in build_ocp), acatos
+    # `bgh.c` never subtracts a slack from this residual -> structurally hard.
+    # The soft 2500 aspiration is expressed ONLY by J_colreg's exp barrier
+    # (cost_colreg below, which still reads G_CPA_SAFE). The cpa_safe local is
+    # kept because cost_colreg reads it AFTER this block.
     cpa_safe = gslot(G_CPA_SAFE)
+    cpa_hard = gslot(G_CPA_HARD)
     cpa_rows = []
     for t in range(NT):
         # F4: per-stage drifted target position (precomputed in pack_parameters).
@@ -320,7 +353,7 @@ def build_model() -> AcadosModel:
         ty_at_k = target_y_at_k(t)
         dx = px - tx_at_k
         dy = py - ty_at_k
-        cpa_rows.append(dx * dx + dy * dy - cpa_safe * cpa_safe)
+        cpa_rows.append(dx * dx + dy * dy - cpa_hard * cpa_hard)
     # Direction + min_alt (single-stage form; acatos stacks per stage).
     ox = gslot(G_RF_OX)
     oy = gslot(G_RF_OY)
@@ -490,7 +523,10 @@ def build_ocp() -> AcadosOcp:
         #      P4: terminal C10/C11 abolished.
         #      Prefix rows 0,1: EQUALITY lh=uh=0 (the activation factor pact_pre
         #      deactivates them at stages k>=K by making the expression 0).
-    #      CPA rows: one-sided >= 0 (lh=0, uh=+inf), softened via idxsh below.
+    #      CPA rows: one-sided >= 0 (lh=0, uh=+inf). Step5 方案 B: these rows are
+    #      TRUE hard — no idxsh is set (see block below), so acatos allocates no
+    #      slack and `bgh.c` never subtracts one from the residual. The residual
+    #      reads cpa_hard_m (1852 fixed) from G_CPA_HARD, NOT the bumped cpa_safe.
     #      direction/min_alt: one-sided >= 0.
     lh = np.zeros((nh,))
     uh = np.full((nh,), UH_INF)
@@ -503,15 +539,18 @@ def build_ocp() -> AcadosOcp:
     ocp.constraints.lh0 = lh
     ocp.constraints.uh0 = uh
 
-    # ---- P3 per-target soft constraint: soften the NT CPA rows (idxsh).
-    #      CPA rows now start at row 2 (after the 2 prefix rows); idxsh shifts
-    #      from [0..NT-1] to [2..2+NT-1]. acatos adds ns=NT lower-slacks per
-    #      stage. Mixed L1/L2 (zl*xi + 0.5*Zl*xi^2) -> exact-penalty. ----
-    ocp.constraints.idxsh = np.arange(NT) + 2
-    ocp.cost.Zl = ZL
-    ocp.cost.zl = ZL_LIN
-    ocp.cost.Zu = ZU
-    ocp.cost.zu = ZU_LIN
+    # ---- Step5 方案 B (VR-01 final): nsh=0, no slack. ----
+    # The CPA per-target rows are TRUE hard (residual reads cpa_hard_m=1852 from
+    # G_CPA_HARD; no idxsh -> acatos `bgh.c` never subtracts a slack -> the row
+    # cannot be softened). Setting idxsh is omitted entirely; acatos defaults
+    # nsh=0/ns=0 when no soft constraint is declared. The prior P3 per-target
+    # slack (idxsh=[2..2+NT-1], Zl/zl/Zu/zu) is DELETED — it was structurally
+    # soft-by-construction (BL-A: once a row enters idxsh, acatos subtracts the
+    # slack unconditionally; raising Zl only makes slack EXPENSIVE, never zero),
+    # which defeated the hard 1852 floor. The soft 2500 aspiration is now
+    # expressed ONLY by J_colreg's exp barrier (cost_colreg reads G_CPA_SAFE).
+    # See review/2026-07-20-step5-plan-b-nh20-agent_8ae45f72.md §1 [R25] + §3.
+    # (Intentionally no ocp.constraints.idxsh / ocp.cost.Zl/zl/Zu/zu assignment.)
 
     # ---- Initial state (origin, north heading, zero yaw rate, 5 m/s surge). ----
     ocp.constraints.x0 = np.array([0.0, 0.0, 0.0, 0.0, 5.0])
@@ -529,6 +568,9 @@ def build_ocp() -> AcadosOcp:
     p_global_seed[G_SPEED_MIN] = U_SURGE_MIN
     p_global_seed[G_SPEED_MAX] = U_SURGE_MAX
     p_global_seed[G_CPA_SAFE] = 1852.0     # 1 NM default (ConstraintInputs)
+    # Step5 方案 B: cpa_hard_m seed (1852 fixed, never bumped). The CPA row
+    # residual reads this slot -> TRUE hard floor (nsh=0, no slack absorbs it).
+    p_global_seed[G_CPA_HARD] = 1852.0     # 1 NM hard floor (appended slot)
     p_global_seed[G_ROT_MAX] = ROT_MAX
     p_global_seed[G_OWN_PSI] = 0.0
     p_global_seed[G_GIVE_WAY] = 0.0
@@ -559,7 +601,24 @@ def main():
     nx = model.x.rows()
     nu = model.u.rows()
     nh = model.con_h_expr.rows()
-    nsh = len(ocp.constraints.idxsh)
+    # Step5 方案 B code-review M2: derive nsh from the actual idxsh assignment
+    # in build_ocp() instead of hardcoding 0. If a future change reintroduces
+    # `ocp.constraints.idxsh = ...` in build_ocp() without updating a hardcoded
+    # `nsh = 0` here, the diagnostic print would lie (show nsh=0 while acatos
+    # actually allocates slack variables). Deriving from getattr makes the
+    # diagnostic self-consistent with the actual build_ocp() state.
+    idxsh_arr = getattr(ocp.constraints, "idxsh", None)
+    nsh = 0 if idxsh_arr is None else int(len(idxsh_arr))
+    # Defense-in-depth: if someone reintroduces idxsh in build_ocp(), fail loud
+    # here rather than silently regressing the CPA hard floor (Step5 方案 B
+    # requires nsh=0 for the true hard 1852 floor; any idxsh re-add MUST be a
+    # deliberate design change that updates this assertion + the Step5 record).
+    assert nsh == 0, (
+        f"Step5 方案 B invariant violated: nsh={nsh} (idxsh has {nsh} entries). "
+        f"The CPA hard floor requires nsh=0 (no slack). Re-adding idxsh is a "
+        f"design change — update docs/superpowers/design-logs/"
+        f"2026-07-20-m5-acados-c1-semantic-ocp-design-log.md §Step5 VR-01 first."
+    )
     print(f"PRODUCTION GEN: C code exported to {code_export_dir}")
     print(f"SOLVER_NAME={SOLVER_NAME}")
     print(f"DYNAMICS (Path B 5-dim): x=[px,py,psi,r,u_surge] nx={nx}, "
@@ -571,16 +630,19 @@ def main():
     print(f"CONSTRAINTS: con_h nh={nh} (prefix 2 + CPA per-target={NT} + "
           f"direction + min_alt + terminal 3); ROT via lbx/ubx")
     print(f"  prefix rows 0,1: equality lh=uh=0 (pact_pre activation factor, F2)")
-    print(f"  idxsh={list(ocp.constraints.idxsh)} (per-target xi slack)")
+    print(f"  CPA rows [2..{2+NT-1}]: TRUE HARD (Step5 方案 B; nsh=0, no idxsh, "
+          f"residual=dx^2+dy^2-cpa_hard_m^2 from G_CPA_HARD={G_CPA_HARD})")
+    print(f"  nsh={nsh} (no slack; soft 2500 aspiration via J_colreg barrier only)")
     print(f"COST: EXTERNAL 6-cost per-stage (colreg/dist/route/vel/asym) + "
     f"EXTERNAL terminal (\u00a75.4 softplus)")
     print(f"COLLISION COST: P7 UT expected cost (5 sigma points, alpha=1e-3) "
           f"+ intent scaling (k_intent=1.0)")
     print(f"  cost_scaling=ones({N+1}) (T2/T9 -- discrete ungated sum)")
     print(f"PARAM PARTITION: global np_global={NP_GLOBAL} "
-          f"(26 head + {NT}x8 target, P7 stride 8) + per-stage np_per_stage={NP_PER_STAGE} "
+          f"(26 head + {NT}x8 target + 1 cpa_hard [Step5 方案 B], P7 stride 8) "
+          f"+ per-stage np_per_stage={NP_PER_STAGE} "
           f"(prefix+drift+tb+sigma_pos(P7)+transition) "
-          f"= {NP_GLOBAL+NP_PER_STAGE} (P7 expansion)")
+          f"= {NP_GLOBAL+NP_PER_STAGE} (Step5 方案 B)")
     print(f"SOLVER OPTS: FULL_CONDENSING_HPIPM, EXACT (F3), DISCRETE, SQP, "
           f"tol 1e-9, max_iter 400, MERIT_BACKTRACKING (F4)")
 

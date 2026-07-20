@@ -76,9 +76,19 @@ constexpr int32_t kGIdxPreferredDir      = 22;
 constexpr int32_t kGIdxMinAlterationRad  = 23;
 constexpr int32_t kGIdxRole              = 24;
 constexpr int32_t kGIdxDecelMax          = 25;
+// Step5 方案 B (VR-01 final): kGIdxCpaHard is appended at the END of the global
+// block (right after the 26 head scalars + 128-slot target block), so neither
+// the head scalars nor the target block offsets change. This keeps the
+// regression surface minimal (no target block shift, no kGIdxTargets move).
+// kAcadosGIdxCpaHard is the public header alias; its value is the 0-based index
+// 154 (= 26 + 128) into the 155-element global param vector (the appended slot
+// IS the 155th element; np_global becomes 155 to accommodate it).
+constexpr int32_t kGIdxCpaHard          = kAcadosGIdxCpaHard;  // index 154 (appended; np_global=155)
 // Target block begins right after the 26 head scalars in the GLOBAL vector
 // (note: NOT 62 — the prefix sequence is in the per-stage block, so the target
-// block is packed contiguously after the head scalars here).
+// block is packed contiguously after the head scalars here). The appended
+// kGIdxCpaHard slot is the LAST global element (index 154, np_global=155),
+// sitting AFTER the target block.
 constexpr int32_t kGIdxTargets = kAcadosNpGlobalHeadScalars;  // 26
 constexpr int32_t kGTargetStride = kAcadosTargetStride;       // 8 (P7)
 
@@ -126,7 +136,7 @@ MidMpcAcadosFormulation::MidMpcAcadosFormulation(Config cfg) : cfg_(std::move(cf
 int MidMpcAcadosFormulation::nx() const noexcept { return 5; }            // Path B
 int MidMpcAcadosFormulation::nu() const noexcept { return 2; }            // [delta, n]
 int MidMpcAcadosFormulation::np_global() const noexcept {
-  return kAcadosNpGlobal;                                                  // 154 (P7)
+  return kAcadosNpGlobal;                                                  // 155 (Step5 方案 B: 154 + 1 cpa_hard)
 }
 int MidMpcAcadosFormulation::np_per_stage() const noexcept {
   // P7: 3 (prefix psi/u + pact_pre) + 2*Nt (per-target drift x/y) + 2 (tb_x/tb_y
@@ -300,8 +310,13 @@ casadi::MX MidMpcAcadosFormulation::build_disc_dyn_() const {
 // target_x_at_k[t]/target_y_at_k[t] (precomputed in pack_parameters as
 // tx + sog*cos(cog)*k*dt, ty + sog*sin(cog)*k*dt — matches IPOPT
 // mid_mpc_nlp_formulation.cpp:375-380). The single-stage graph cannot index k,
-// so drift is delivered per-stage via update_params. P1b-1a T7 per-target xi
-// slack softens these rows (idxsh=[2..2+Nt-1]) in the codegen script.
+// so drift is delivered per-stage via update_params.
+// Step5 方案 B (VR-01 final): residual = dx²+dy² - cpa_hard_m², where cpa_hard_m
+// is read from the appended kGIdxCpaHard global slot (1852 fixed, never bumped).
+// nsh=0 in the codegen script means NO slack is allocated for these rows — the
+// CPA row is a TRUE hard floor (acatos `bgh.c` residual never subtracts a slack
+// because idxsh is empty). The soft 2500 aspiration is expressed ONLY by
+// J_colreg's exp barrier (build_colreg_cost_, still reads kGIdxCpaSafe).
 //
 // direction (1 row): preferred_direction · l[k] >= 0. l[k] is the route-frame
 // cross-track at the current stage (own pos - route origin)·n_hat.
@@ -330,14 +345,23 @@ casadi::MX MidMpcAcadosFormulation::build_con_h_() const {
   rows.push_back(pact_pre * (psi     - prefix_psi_at_k_slot_()));  // prefix_psi
   rows.push_back(pact_pre * (u_surge - prefix_u_at_k_slot_()));    // prefix_u
   // ---- CPA per-target residual (F4: per-stage drifted target position). ----
-  const casadi::MX cpa_safe = gslot_(kGIdxCpaSafe);
+  // Step5 方案 B (VR-01 final): the CPA row residual now reads cpa_hard_m from
+  // kGIdxCpaHard (appended global slot, value = 1852 fixed, NEVER bumped). This
+  // makes the CPA row a TRUE hard floor — combined with nsh=0 (no slack) in the
+  // codegen script, no slack variable can absorb a violation. The soft 2500
+  // aspiration is expressed ONLY by J_colreg's exp barrier (build_colreg_cost_,
+  // which still reads kGIdxCpaSafe). See review/2026-07-20-step5-plan-b-nh20-
+  // agent_8ae45f72.md §3 (technical decomposition) + §4 FB-2 (L4 telemetry
+  // remedy: constraints_satisfied_ drops sl_vec read, adds d_min + soft
+  // aspiration violation_m telemetry).
+  const casadi::MX cpa_hard = gslot_(kGIdxCpaHard);
   for (int32_t t = 0; t < Nt; ++t) {
     const casadi::MX tx_at_k = target_x_at_k_slot_(t);
     const casadi::MX ty_at_k = target_y_at_k_slot_(t);
     const casadi::MX dx = px - tx_at_k;
     const casadi::MX dy = py - ty_at_k;
-    // Squared-distance residual (one-sided >= cpa_safe^2 after acatos lh).
-    rows.push_back(dx * dx + dy * dy - cpa_safe * cpa_safe);
+    // Squared-distance residual (one-sided >= cpa_hard^2 after acatos lh).
+    rows.push_back(dx * dx + dy * dy - cpa_hard * cpa_hard);
   }
   // Direction + min_alt rows: l[k] = (own_pos - route_origin) · n_hat.
   const casadi::MX ox = gslot_(kGIdxRouteFrameOriginX);
@@ -560,7 +584,7 @@ casadi::MX MidMpcAcadosFormulation::build_transition_cost_() const {
 void MidMpcAcadosFormulation::build_symbolic_graph() {
   x_ = casadi::MX::sym("x", nx(), 1);               // [px,py,psi,r,u_surge]
   u_ = casadi::MX::sym("u", nu(), 1);               // [delta,n]
-  p_global_ = casadi::MX::sym("p_global", np_global(), 1);      // 106
+  p_global_ = casadi::MX::sym("p_global", np_global(), 1);      // 155 (Step5 方案 B)
   p_stage_  = casadi::MX::sym("p_stage", np_per_stage(), 1);    // 39 (F2/F4 + T3 tb + P5 T2)
   disc_dyn_expr_ = build_disc_dyn_();
   con_h_expr_    = build_con_h_();
@@ -574,13 +598,16 @@ void MidMpcAcadosFormulation::build_symbolic_graph() {
 }
 
 // ===========================================================================
-// pack_parameters() — MidMpcInput -> {global[106], per_stage[N+1][37]}.
+// pack_parameters() — MidMpcInput -> {global[155], per_stage[N+1][37]}.
 //
-// Global block (stage-uniform, 106 = 26 head + 80 target):
+// Global block (stage-uniform, 155 = 26 head + 128 target + 1 cpa_hard):
 //   mirrors IPOPT kIdx 0-25 (head) and kIdx 62-141 (target block, remapped to
-//   26-105 since the prefix sequence moves to the per-stage block). Slots 0-3
+//   26-153 since the prefix sequence moves to the per-stage block). Slots 0-3
 //   (own psi/u/x/y) are RESERVED x0 seeds (F3) — the Task 16 solver writes them
 //   to ocp.constraints.x0; they are NOT graph-referenced.
+//   Step5 方案 B: the LAST global slot (index 154, np_global=155) is the
+//   appended kGIdxCpaHard (cpa_hard_m=1852 fixed, never bumped). The CPA row
+//   residual reads this slot (true hard floor).
 //
 // Per-stage block (np_per_stage = 3 + 2*Nt + 2 tb = 37 at Nt=16; N+1 rows):
 //   stage k carries [prefix_psi_at_k, prefix_u_at_k, pact_pre,
@@ -607,6 +634,11 @@ MidMpcAcadosFormulation::pack_parameters(const MidMpcInput& input) const {
   g[kGIdxSpeedMin]     = input.constraints.speed_min_mps;
   g[kGIdxSpeedMax]     = input.constraints.speed_max_mps;
   g[kGIdxCpaSafe]      = input.constraints.cpa_safe_m;
+  // Step5 方案 B (VR-01 final): write cpa_hard_m to the appended kGIdxCpaHard
+  // slot (1852 fixed, never bumped by the node). The CPA row residual reads
+  // this slot (build_con_h_), making it a TRUE hard floor. cpa_safe stays the
+  // SOFT aspiration read by J_colreg's exp barrier (build_colreg_cost_).
+  g[kGIdxCpaHard]      = input.constraints.cpa_hard_m;
   g[kGIdxOwnPsi]       = input.constraints.own_ship_psi_rad;
   g[kGIdxRotMax]       = input.rot_max_rad_s;
   bool give_way = false;

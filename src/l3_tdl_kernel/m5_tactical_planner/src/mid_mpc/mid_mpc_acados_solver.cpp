@@ -55,11 +55,24 @@ constexpr int kAcadosNx  = M5_MID_MPC_ACADOS_NX;    // 5 ([px,py,psi,r,u_surge])
 constexpr int kAcadosNu  = M5_MID_MPC_ACADOS_NU;    // 2 ([delta,n])
 constexpr int kAcadosN   = M5_MID_MPC_ACADOS_N;     // 18 (production horizon)
 constexpr int kAcadosNp  = M5_MID_MPC_ACADOS_NP;    // 146 (106 global + 40 per-stage,
-	                                                    //      40 = 3 prefix + 2*16 target drift
-	                                                    //      + 2 tb_x/tb_y + 2 psi/u_prev
-	                                                    //      + 1 w_trans_active (P5 T2))
-constexpr int kAcadosNsh = M5_MID_MPC_ACADOS_NSH;   // 16 (per-target CPA slacks)
-constexpr int kAcadosNs  = M5_MID_MPC_ACADOS_NS;    // 16 (slacks per path stage)
+		                                                    //      40 = 3 prefix + 2*16 target drift
+		                                                    //      + 2 tb_x/tb_y + 2 psi/u_prev
+		                                                    //      + 1 w_trans_active (P5 T2))
+// Step5 方案 B (VR-01 final): nsh=0 (no slack). The codegen script no longer
+// sets ocp.constraints.idxsh, so the regenerated header will define
+// M5_MID_MPC_ACADOS_NSH=0 / M5_MID_MPC_ACADOS_NS=0. The OLD generated header
+// still in tree (NSH=16/NS=16) is STALE pending codegen re-run; the wrapper
+// logic below is nsh-tolerant (it reads "sl" only when kAcadosNsh > 0).
+//
+// IMPORTANT: the row LAYOUT (nh, kRowDirection, kRowMinAlt) depends on the
+// target count Nt=16, NOT on nsh. Pre-Step5 these happened to be equal (both
+// 16), so the code aliased them. Step5 方案 B decouples them: kAcadosNt is the
+// TARGET count (16, formulation constant); kAcadosNsh is the SLACK count
+// (0 after codegen re-run). Row offsets use kAcadosNt; slack reads use
+// kAcadosNsh. This makes the layout stable across the nsh=0 transition.
+constexpr int kAcadosNt  = MidMpcAcadosFormulation::kAcadosMaxTargets;  // 16 (target count, layout-determining)
+constexpr int kAcadosNsh = M5_MID_MPC_ACADOS_NSH;   // 0 after Step5 方案 B codegen re-run (was 16)
+constexpr int kAcadosNs  = M5_MID_MPC_ACADOS_NS;    // 0 after Step5 方案 B codegen re-run (was 16)
 constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 20 (P4: abolished terminal C10/C11, was 23)
 
 // Row-class offsets in con_h (mirror MidMpcAcadosFormulation::build_con_h_ and
@@ -69,14 +82,16 @@ constexpr int kAcadosNh  = M5_MID_MPC_ACADOS_NH;    // 20 (P4: abolished termina
 // for non-lateral scenarios).
 //   [0]      prefix_psi      (equality via pact_pre activation factor)
 //   [1]      prefix_u        (equality via pact_pre activation factor)
-//   [2..17]  CPA per-target  (one-sided >= 0, softened via idxsh=[2..17])
+//   [2..17]  CPA per-target  (one-sided >= 0; Step5 方案 B: TRUE hard, nsh=0 no slack)
 //   [18]     direction       (pref_dir * l_k)
 //   [19]     min_alt         (pref_dir * (psi - own_psi) - min_alt_par)
+// Step5 方案 B: row offsets use kAcadosNt (16, target count), NOT kAcadosNsh
+// (0 after codegen). This keeps the layout stable across the nsh=0 transition.
 constexpr int kRowPrefixPsi = 0;
 constexpr int kRowPrefixU   = 1;
 constexpr int kRowCpaBase   = 2;                    // CPA rows [2..2+Nt-1]
-constexpr int kRowDirection = 2 + kAcadosNsh;       // 18 (Nt=16)
-constexpr int kRowMinAlt    = 2 + kAcadosNsh + 1;   // 19
+constexpr int kRowDirection = 2 + kAcadosNt;        // 18 (Nt=16)
+constexpr int kRowMinAlt    = 2 + kAcadosNt + 1;    // 19
 static_assert(kRowMinAlt == kAcadosNh - 1,
               "row offset layout must match build_con_h_ + gen script");
 
@@ -169,15 +184,18 @@ RowBounds build_stage_row_bounds(int nh, bool lateral_active,
   set_row_value(kRowPrefixU,   0.0, 0.0);
   // CPA rows [2..17]: one-sided >= 0 for the n_targets REAL targets; relaxed
   // [-inf,+inf] for empty slots [n_targets..max_targets-1] (mirror IPOPT, which
-  // emits CPA rows only for real targets). Clamp n_targets to [0, kAcadosNsh].
+  // emits CPA rows only for real targets). Clamp n_targets to [0, kAcadosNt].
   // I-4: For prefix stages (k<K), RELAX ALL CPA rows to [-inf,+inf]
   // (colreg_prefix_softened semantics).
-  const int n_t = std::max(0, std::min(n_targets, kAcadosNsh));
-  for (int t = 0; t < kAcadosNsh; ++t) {
+  // Step5 方案 B: n_t/target-count is kAcadosNt (16), NOT kAcadosNsh (0 after
+  // codegen). These CPA rows are TRUE hard (nsh=0, no slack); the bound is
+  // one-sided >= 0 (residual = dx^2+dy^2-cpa_hard_m^2, lh=0).
+  const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
+  for (int t = 0; t < kAcadosNt; ++t) {
     if (prefix_stage || t >= n_t) {
       set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // relaxed
     } else {
-      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // real target: >= 0
+      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // real target: >= 0 (hard)
     }
   }
   // Direction / min_alt: deactivate unless lateral_active. P4: terminal C10/C11 abolished.
@@ -232,6 +250,15 @@ struct MidMpcAcadosSolver::Impl {
   int last_raw_status{-1};
   double last_traj_delta{0.0};
   int last_sqp_iter{-1};
+  // Step5 方案 B (FB-2 telemetry remedy): with nsh=0 there is no slack vector
+  // to read "soft aspiration (d<cpa_safe=2500) violation degree" from. The
+  // constraints_satisfied_ helper recomputes d_min over the solved trajectory
+  // (min over stage k and real target t of sqrt(dx^2+dy^2)); solve() lifts
+  // these into MidMpcSolution for ASDR/SAT transparency (L4/M7 observability).
+  // Kept independent from the cpa_slack field (which is always 0 under nsh=0
+  // but retained for IPOPT path + downstream contract stability).
+  double last_soft_aspiration_d_min_m{0.0};
+  double last_soft_aspiration_violation_m{0.0};
 	  // C1 status-4 constraint re-check (T17 review-fix C1): a CasADi Function
 	  // built lazily on the FIRST status-4 outcome, wrapping the formulation's
 	  // con_h_expr over (x, u, p_global, p_stage). Cached so the per-status-4
@@ -529,12 +556,41 @@ double steady_state_n_for_u(double u_mps) {
 //
 // Row treatment (mirror build_stage_row_bounds):
 //   prefix(0,1)        equality [0,0]              -> |h| <= kBoxTol
-//   CPA(2..17)         >= 0, softened via idxsh    -> h + xi >= -kBoxTol
+//   CPA(2..17)         >= 0 hard (Step5 方案 B:
+//                      nsh=0, no slack)           -> h >= -kBoxTol
 //                      empty target slots relaxed  -> skip (bound is ±kUhInf)
 //   direction(18)      >= 0 when lateral_active    -> h >= -kBoxTol
 //   min_alt(19)        >= 0 when lateral_active    -> h >= -kBoxTol
 //   terminal(20,21,22) >= 0 when lateral_active    -> h >= -kBoxTol (stage N only)
 // Rows deactivated via [-kUhInf, +kUhInf] are always satisfied (skip).
+//
+// Step5 方案 B (VR-01 final): nsh=0 means NO slack vector. The CPA row check is
+// now a pure hard `h >= -kBoxTol` (no `h + xi >= -kBoxTol` subtraction). The
+// slack read (`ocp_nlp_out_get "sl"`) is skipped when kAcadosNsh==0 — calling
+// it with a zero-length buffer would be a no-op anyway, but guarding keeps the
+// logic auditable and robust to the stale pre-codegen header (NSH=16) vs the
+// post-codegen header (NSH=0) transition.
+//
+// FB-2 telemetry remedy: with no slack, L4 loses the "soft aspiration (d<2500)
+// violation degree" signal. This helper additionally computes d_min over the
+// horizon (min over stage k and real target t of sqrt(dx^2+dy^2)) and the soft
+// aspiration violation_m = max(0, cpa_safe - d_min). The caller (solve()) lifts
+// these into MidMpcSolution for ASDR/SAT transparency. The hard check itself is
+// unaffected — this is pure observability, NOT a new constraint.
+//
+// GNC review C2 (2026-07-20): d_min covers ONLY suffix stages (k >= prefix_K).
+// Prefix-stage CPA rows are relaxed to ±kUhInf by build_stage_row_bounds when
+// prefix_stage=true, and the `if (is_relaxed(lo, hi)) continue` guard at the
+// top of the row loop skips them BEFORE the d_min fold-in block. This means
+// soft_aspiration_d_min_m / soft_aspiration_violation_m reflect only the
+// maneuverable suffix trajectory, not the frozen committed prefix geometry.
+// Rationale: prefix geometry is already tracked by the committed_route field
+// (L4 consumes it separately), so double-counting prefix CPA in this telemetry
+// would mix "frozen past" with "planned future" semantics. If the frozen
+// prefix itself is the closest-to-target segment, soft_aspiration_violation_m
+// will UNDERREPORT the true soft-band intrusion — L4/M7 must consult the
+// committed prefix witness (L1b DP-04 D1, SC-04) for prefix-stage CPA audit.
+// In L1a test scope (prefix_active_k=0), this gap never triggers.
 //
 // The check is INDEPENDENT of the solver's internal residual bookkeeping: it
 // rebuilds h from the published trajectory + the packed parameters and applies
@@ -571,7 +627,12 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
     return lo <= -kUhInf * 0.5 && hi >= kUhInf * 0.5;
   };
 
-  const int n_t = std::max(0, std::min(n_targets, kAcadosNsh));
+  // Step5 方案 B: target count is kAcadosNt (16, layout constant), NOT
+  // kAcadosNsh (0 after codegen re-run). CPA row activation uses n_t.
+  const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
+  // FB-2 telemetry remedy: track d_min over the horizon for soft aspiration
+  // violation_m. Initialised to +inf so the first real target sets it.
+  double d_min_over_horizon = std::numeric_limits<double>::infinity();
   for (int k = 0; k <= kAcadosN; ++k) {
     const std::size_t kk = static_cast<std::size_t>(k);
 
@@ -587,12 +648,16 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "u", uk);
     }
 
-    // Read per-stage CPA slack xi (length NS=16) for k<N; for stage N there is
-    // no slack vector (no control at N) so CPA rows at N use xi=0. In practice
-    // CPA rows at the terminal stage are still >= 0 ones; xi=0 is the safe
-    // (strict) choice.
-    double sl_vec[kAcadosNs] = {0.0};
-    if (k < kAcadosN) {
+    // Step5 方案 B: nsh=0 -> NO slack vector. Only read "sl" when the codegen
+    // actually allocated slacks (kAcadosNsh > 0). This keeps the logic robust
+    // to the stale pre-codegen header (NSH=16) vs the post-codegen header
+    // (NSH=0) transition. Under nsh=0 the CPA row check below is pure hard
+    // `h >= -kBoxTol` (no xi subtraction). The buffer is fixed-size 16 (the max
+    // slack count ever allocated; avoids a zero-length VLA when kAcadosNs==0
+    // which is UB in C++ and would trip -Werror=vla).
+    double sl_vec[16] = {0.0};
+    static_assert(sizeof(sl_vec) / sizeof(sl_vec[0]) >= 1, "slack buffer non-empty");
+    if (kAcadosNsh > 0 && kAcadosNsh <= 16 && k < kAcadosN) {
       ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "sl", sl_vec);
     }
 
@@ -649,15 +714,37 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       // Relaxed row (double-disabled) -> always satisfied.
       if (is_relaxed(lo, hi)) continue;
 
-      // CPA softened rows [kRowCpaBase..kRowCpaBase+n_t-1]: effective lower
-      // bound is lo - xi (the slack relaxes the one-sided >= 0). Only the
-      // n_targets REAL CPA rows are softened-and-active; empty slots are
-      // relaxed (skipped above). For real CPA rows with t < n_t, subtract xi.
+      // Step5 方案 B: CPA rows are TRUE hard (nsh=0, no slack). The effective
+      // lower bound is `lo` directly (no xi subtraction). The legacy slack
+      // subtraction (eff_lo = lo - sl_vec[t]) is retained ONLY for the stale
+      // pre-codegen header transition (kAcadosNsh > 0); once codegen re-runs
+      // with nsh=0, this branch is dead and eff_lo == lo.
+      //
+      // FB-2 telemetry: for real CPA rows (t < n_t), compute the actual
+      // stage-target distance d_kt = sqrt(dx^2+dy^2) and fold into
+      // d_min_over_horizon. The CPA residual h = dx^2+dy^2 - cpa_hard^2, so
+      // dx^2+dy^2 = h + cpa_hard^2; d_kt = sqrt(h + cpa_hard^2). cpa_hard is
+      // read from the global param slot kAcadosGIdxCpaHard (1852 fixed).
       double eff_lo = lo;
       if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
         const int t = r - kRowCpaBase;
-        if (t < kAcadosNsh) {
-          eff_lo = lo - sl_vec[t];
+        if (kAcadosNsh > 0 && t < kAcadosNsh) {
+          eff_lo = lo - sl_vec[t];  // legacy soft (dead under nsh=0)
+        }
+        // FB-2: fold d_kt into d_min (only when cpa_hard slot is populated).
+        // Step5 方案 B code-review: use the named slot constant directly
+        // (kAcadosGIdxCpaHard == kParamDimGlobal - 1 == 154) for clarity.
+        const std::size_t cpa_hard_idx =
+            static_cast<std::size_t>(kAcadosGIdxCpaHard);
+        if (cpa_hard_idx < g.size()) {
+          const double cpa_hard = g[cpa_hard_idx];
+          const double sum = hv + cpa_hard * cpa_hard;  // = dx^2+dy^2
+          if (sum > 0.0 && std::isfinite(sum)) {
+            const double d_kt = std::sqrt(sum);
+            if (d_kt < d_min_over_horizon) {
+              d_min_over_horizon = d_kt;
+            }
+          }
         }
       }
 
@@ -667,7 +754,7 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
         const char* row_kind =
 	        (r == kRowPrefixPsi) ? "prefix_psi" :
 	        (r == kRowPrefixU)   ? "prefix_u"   :
-	        (r >= kRowCpaBase && r < kRowCpaBase + kAcadosNsh) ? "cpa" :
+	        (r >= kRowCpaBase && r < kRowCpaBase + kAcadosNt) ? "cpa" :
 	        (r == kRowDirection) ? "direction"  :
 	        (r == kRowMinAlt)    ? "min_alt"    :
 	        "?";
@@ -678,6 +765,23 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       }
     }
   }
+  // FB-2 telemetry remedy: lift d_min + soft aspiration violation_m into Impl
+  // for solve() to read into MidMpcSolution. violation_m = max(0, cpa_safe -
+  // d_min); cpa_safe is the SOFT aspiration (2500 during conflict, 1852
+  // otherwise). When no real target was seen, d_min stays +inf -> violation 0.
+  impl_->last_soft_aspiration_d_min_m =
+      std::isfinite(d_min_over_horizon) ? d_min_over_horizon : 0.0;
+  // Step5 方案 B code-review M1: use the public alias instead of the literal 10
+  // so the slot arithmetic stays auditable (kAcadosGIdxCpaSafe mirrors the
+  // anonymous-namespace kGIdxCpaSafe in mid_mpc_acados_formulation.cpp).
+  const std::size_t cpa_safe_idx = static_cast<std::size_t>(kAcadosGIdxCpaSafe);
+  const double cpa_safe_val =
+      (cpa_safe_idx < g.size()) ? g[cpa_safe_idx] : 1852.0;
+  const double violation =
+      std::isfinite(d_min_over_horizon)
+          ? std::max(0.0, cpa_safe_val - d_min_over_horizon)
+          : 0.0;
+  impl_->last_soft_aspiration_violation_m = violation;
   return true;
 }
 
@@ -698,6 +802,21 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
 MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                                           const MidMpcSolution* warm_start) {
   const auto t_start = std::chrono::steady_clock::now();
+#ifdef M5_ACADOS_PROFILE
+  // TEMPORARY Phase-1 diagnostic: per-stage chrono breakdown. Guarded by a
+  // CMake-defined macro so production builds never see it. Removed after the
+  // 12.5 s/solve bottleneck is identified.
+  const auto t_p0 = t_start;
+  #define M5_ACADOS_PROFILE_MARK(label)                                        \
+    do {                                                                       \
+      const auto _t = std::chrono::steady_clock::now();                        \
+      const double _ms = std::chrono::duration<double, std::milli>(_t - t_p0).count(); \
+      fprintf(stderr, "[ACADOS-PROFILE] %-28s %8.2f ms (cum since last mark)\n", \
+              label, _ms);                                                     \
+    } while (0)
+#else
+  #define M5_ACADOS_PROFILE_MARK(label) do {} while (0)
+#endif
   MidMpcSolution sol;  // status defaults to NotInitialized
 
   // ---- 1. pack parameters. ----
@@ -720,6 +839,8 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     sol.status = MidMpcSolution::Status::NumericalFailure;
     return sol;
   }
+
+  M5_ACADOS_PROFILE_MARK("1.pack_params");
 
   // ---- 1a. P2 T4 (VR-07b, review-fix I-1): compute the seed trajectory ----
   // ONCE into a shared per-stage vector. This is the SINGLE propagation of the
@@ -1018,7 +1139,9 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   }
 
   // ---- 5b. solve. ----
+  M5_ACADOS_PROFILE_MARK("5b.pre_solve");
   const int status = m5_mid_mpc_acados_acados_solve(impl_->capsule);
+  M5_ACADOS_PROFILE_MARK("5b.solve_done");
   // TEST-ONLY diagnostic mirror (T17 review-fix Step 1).
   impl_->last_raw_status = status;
 
@@ -1043,10 +1166,21 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
         !std::isfinite(psi_traj[kk]) || !std::isfinite(u_traj[kk])) {
       any_nan = true;
     }
-    // Per-target CPA slack (NSH=16 per path stage; "sl" length = NS = 16).
+    // Per-target CPA slack (NSH per path stage; "sl" length = NS).
     // Terminal stage N has no sl (no control at N), so skip reading it there.
-    if (k < kAcadosN) {
-      double sl_vec[kAcadosNs] = {0.0};
+    // Step5 方案 B: nsh=0 -> no slack allocated. Guard the read with
+    // kAcadosNsh > 0 so the wrapper is robust to the stale pre-codegen header
+    // (NSH=16) vs the post-codegen header (NSH=0). Under nsh=0 the cpa_slack
+    // fields stay 0 (correct — there is no slack to report); the soft
+    // aspiration signal is carried by last_soft_aspiration_violation_m instead
+    // (computed in constraints_satisfied_, lifted into sol below).
+    // (FB-2): the soft aspiration signal now also lives in
+    // last_soft_aspiration_violation_m (computed in constraints_satisfied_),
+    // which is the surviving path under nsh=0.
+    if (kAcadosNsh > 0 && kAcadosNsh <= 16 && k < kAcadosN) {
+      // Fixed-size buffer (max 16 slacks ever allocated) avoids a zero-length
+      // VLA when kAcadosNs==0 which is UB in C++ and trips -Werror=vla.
+      double sl_vec[16] = {0.0};
       ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "sl", sl_vec);
       for (int t = 0; t < kAcadosNsh; ++t) {
         const double xi = sl_vec[t];
@@ -1083,20 +1217,31 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   //   moved but violated a constraint — e.g. CPA hard floor breached — was
   //   reported Converged and flowed to L4 unchallenged). Now both gates must
   //   pass; otherwise the NumericalFailure from map_acados_status stands.
-  // status 1 -> Timeout; status 2 -> Infeasible; status 3/other -> NumFailure.
+  //   status 1 -> Timeout; status 2 -> Infeasible; status 3/other -> NumFailure.
   MidMpcSolution::Status mapped = map_acados_status(status);
-  if (status == 4 && solver_moved) {
+  // Step5 方案 B (FB-2 telemetry remedy): constraints_satisfied_ computes the
+  // soft-aspiration d_min + violation_m SIDE EFFECTS (lifted into Impl for
+  // solve() to read into MidMpcSolution). For status=0 (Converged) the boolean
+  // is unused but the d_min computation must still run so the telemetry is
+  // populated every cycle. For status=4 the boolean gates the re-map. Running
+  // the check on status=0 is an N-step cached MX eval (cheap, observability-
+  // only). For status=1/2/3 (Timeout/Infeasible/NumFailure) the trajectory is
+  // unreliable; skip the check (d_min stays at last cycle's value, which is
+  // acceptable for telemetry — those statuses already flag the cycle).
+  if (status == 0 || (status == 4 && solver_moved)) {
     const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets,
-                                               input.prefix_active_k);
-    if (csat) {
-      mapped = MidMpcSolution::Status::Converged;
-    } else {
-      // Keep NumericalFailure: the solve moved but a constraint is violated.
-      // Log which gate failed for telemetry (constraints_satisfied_ already
-      // logged the offending row).
-      spdlog::warn("[M5][MidMPC][acados] status=4 RE-MAP DENIED: solver moved "
-                   "(traj_delta={}) but constraint re-check FAILED -> keeping "
-                   "NumericalFailure (NOT Converged).", traj_delta);
+                                              input.prefix_active_k);
+    if (status == 4 && solver_moved) {
+      if (csat) {
+        mapped = MidMpcSolution::Status::Converged;
+      } else {
+        // Keep NumericalFailure: the solve moved but a constraint is violated.
+        // Log which gate failed for telemetry (constraints_satisfied_ already
+        // logged the offending row).
+        spdlog::warn("[M5][MidMPC][acados] status=4 RE-MAP DENIED: solver moved "
+                     "(traj_delta={}) but constraint re-check FAILED -> keeping "
+                     "NumericalFailure (NOT Converged).", traj_delta);
+      }
     }
   }
   // NaN in the trajectory is ALWAYS a NumericalFailure, regardless of status.
@@ -1105,11 +1250,20 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   }
 
   const auto t_end = std::chrono::steady_clock::now();
+  M5_ACADOS_PROFILE_MARK("6.extract_done");
   sol.status = mapped;
   sol.solve_duration_ms = static_cast<std::int32_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count());
   sol.cpa_slack = cpa_slack_max;
   sol.cpa_slack_per_target = per_target_max;
+  // Step5 方案 B (FB-2 telemetry remedy): lift soft-aspiration d_min +
+  // violation_m from Impl into MidMpcSolution so ASDR/SAT can observe how far
+  // the solved trajectory is from the soft cpa_safe (2500 during conflict).
+  // This is the slack-free replacement for the cpa_slack signal (which is 0
+  // under nsh=0). Populated by constraints_satisfied_ (called above for
+  // status=0 and status=4); stays 0 for Timeout/Infeasible/NumFailure.
+  sol.soft_aspiration_d_min_m = impl_->last_soft_aspiration_d_min_m;
+  sol.soft_aspiration_violation_m = impl_->last_soft_aspiration_violation_m;
 
   // SQP iter count (the field name stays ipopt_iterations per the output
   // contract — downstream reads it; do NOT rename). ocp_nlp_get "sqp_iter".
@@ -1118,6 +1272,28 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   sol.ipopt_iterations = static_cast<std::int32_t>(sqp_iter);
   // TEST-ONLY diagnostic mirror (T17 review-fix Step 1).
   impl_->last_sqp_iter = sqp_iter;
+#ifdef M5_ACADOS_PROFILE
+  // TEMPORARY Phase-1 diagnostic: acatos-internal stage breakdown (per solve).
+  {
+    double t_qp = 0.0, t_lin = 0.0, t_reg = 0.0, t_sim = 0.0, t_glob = 0.0, t_tot = 0.0;
+    double t_qp_xcond = 0.0;
+    ocp_nlp_get(impl_->solver, "time_tot", &t_tot);
+    ocp_nlp_get(impl_->solver, "time_qp_solver_call", &t_qp);
+    ocp_nlp_get(impl_->solver, "time_qp_xcond", &t_qp_xcond);
+    ocp_nlp_get(impl_->solver, "time_lin", &t_lin);
+    ocp_nlp_get(impl_->solver, "time_reg", &t_reg);
+    ocp_nlp_get(impl_->solver, "time_sim", &t_sim);
+    ocp_nlp_get(impl_->solver, "time_glob", &t_glob);
+    const double wall_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+    const double per_iter_ms = (sqp_iter > 0) ? (t_tot * 1000.0 / sqp_iter) : 0.0;
+    fprintf(stderr, "[ACADOS-PROFILE] solve_detail status=%d sqp_iter=%d "
+            "wall=%.1fms time_tot=%.1fms qp_call=%.1fms qp_xcond=%.1fms "
+            "lin=%.1fms reg=%.1fms sim=%.1fms glob=%.1fms per_iter=%.1fms\n",
+            status, sqp_iter, wall_ms, t_tot * 1000.0, t_qp * 1000.0,
+            t_qp_xcond * 1000.0, t_lin * 1000.0, t_reg * 1000.0,
+            t_sim * 1000.0, t_glob * 1000.0, per_iter_ms);
+  }
+#endif
 
   // Real cost value (ocp_nlp_eval_cost populates it; ocp_nlp_get reads it).
   // This is an IMPROVEMENT over IPOPT (which leaves cost_total=0 in some paths

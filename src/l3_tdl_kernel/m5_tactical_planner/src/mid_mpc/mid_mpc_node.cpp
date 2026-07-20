@@ -1386,6 +1386,16 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   // green" (σ always active) from "genuine fix" (σ zero except close-range).
   char slack_buf[32];
   std::snprintf(slack_buf, sizeof(slack_buf), "%.3f", sol.cpa_slack);
+  // Step5 方案 B (FB-2 telemetry remedy): surface the soft-aspiration d_min +
+  // violation_m. Under nsh=0 the cpa_slack signal is always 0 (no slack);
+  // these fields carry the "trajectory is inside the soft 2500 band but
+  // outside the hard 1852 floor" signal that cpa_slack used to provide.
+  char soft_dmin_buf[32];
+  char soft_viol_buf[32];
+  std::snprintf(soft_dmin_buf, sizeof(soft_dmin_buf), "%.3f",
+                sol.soft_aspiration_d_min_m);
+  std::snprintf(soft_viol_buf, sizeof(soft_viol_buf), "%.3f",
+                sol.soft_aspiration_violation_m);
 
   // v3.1 §7.6 F4 ASDR dispatch audit trail. acatos dispatch gate decision
   // payload + cumulative counters. Free-form JSON extension of decision_json
@@ -1439,6 +1449,12 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
       // P3: per-target ξ breakdown for observability/CCS certification trace.
       // Array of 16 floats; empty-target slots are 0.0.
       + ",\"cpa_slack_per_target\":" + assemble_per_target_slack_json(sol)
+      // Step5 方案 B (FB-2 telemetry remedy): soft-aspiration d_min +
+      // violation_m. Under nsh=0 cpa_slack is always 0; these carry the
+      // "trajectory inside soft 2500 band but outside hard 1852 floor"
+      // signal. violation_m > 0 means legal-but-not-ample-time.
+      + ",\"soft_aspiration_d_min_m\":" + soft_dmin_buf
+      + ",\"soft_aspiration_violation_m\":" + soft_viol_buf
       // v3.1 §7.6 F4 ASDR dispatch audit trail (acatos dispatch gate decision
       // + cumulative counters). Free-form JSON; ASDR msg schema unchanged.
       + ",\"nlp_backend\":\"" + nlp_backend + "\""
@@ -1480,10 +1496,22 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   } else {
     slack_diagnostic = "; nlp_slack=0 (CPA floor compliant)";
   }
+  // Step5 方案 B (FB-2 telemetry remedy): under nsh=0 cpa_slack is always 0;
+  // surface the soft-aspiration violation so M7/operators can see when the
+  // trajectory is inside the soft 2500 band but outside the hard 1852 floor
+  // (legal but not ample-time). This is the slack-free replacement signal.
+  std::string soft_asp_diagnostic;
+  if (sol.soft_aspiration_violation_m > 1.0) {
+    soft_asp_diagnostic = "; soft_aspiration_violation=" + std::string(soft_viol_buf)
+        + "m (d_min=" + std::string(soft_dmin_buf) + "m inside soft band)";
+  } else {
+    soft_asp_diagnostic = "; soft_aspiration_met (d_min >= cpa_safe)";
+  }
   sat.sat2.reasoning_chain    =
       plan.rationale + "; planner_health=" + planner_health
       + "; semantic_mode=" + semantic_mode
-      + "; fallback_reason=" + fallback_reason + slack_diagnostic;
+      + "; fallback_reason=" + fallback_reason + slack_diagnostic
+      + soft_asp_diagnostic;
   sat.sat2.system_confidence  = plan.confidence;
   pub_sat_data_->publish(sat);
 }

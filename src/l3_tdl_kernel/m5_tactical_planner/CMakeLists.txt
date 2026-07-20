@@ -532,6 +532,17 @@ if(BUILD_TESTING)
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
+    # L1a-spec-freeze 批次 1 (Step5 方案 B, VR-01 final): DP-01 CPA hard floor
+    # true-hard 化 symbol-graph tests. Verifies the CPA per-target constraint
+    # residual reads the appended kGIdxCpaHard slot (NOT cpa_safe), and the
+    # hard/soft param isolation (T-B2 adversarial + T-B6a/b/c isolation).
+    # MX-graph-only (no regenerated acatos .so needed); runs in both acados-OFF
+    # and acados-ON builds (mirrors test_mid_mpc_acados_formulation gating).
+    m5_add_gtest(test_l1a_cpa_hard_floor
+      test/unit/test_l1a_cpa_hard_floor.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
     # ── Task 2.2: Mid-MPC solver integration tests (real IPOPT solves) ─────────
     m5_add_gtest(test_mid_mpc_solver
       test/unit/test_mid_mpc_solver.cpp

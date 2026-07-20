@@ -389,11 +389,28 @@ struct MidMpcSolution {
   // window. Reported to ASDR/SAT so "tuned green" (σ always active) is
   // distinguishable from "genuine fix" (σ zero except close-range).
   double cpa_slack{0.0};
-  // P3: per-target ξ max breakdown (max over stage, per target slot).
+  // P3: per-target ξ breakdown (max over stage, per target slot).
   // Length = max_targets (16); slot t is max |ξ_{t,k}| over stages k.
   // Empty target slots (t >= n_targets) are 0.0. For observability/认证
   // (CCS i-Ship ξ 行为可追溯) + SIL ρ-exact-penalty analysis.
   std::array<double, 16> cpa_slack_per_target{};
+  // Step5 方案 B (FB-2 telemetry remedy, VR-01 final): with nsh=0 there is no
+  // slack vector to read "soft aspiration (d < cpa_safe=2500 during conflict)
+  // violation degree" from. These fields carry the soft-aspiration signal that
+  // cpa_slack used to provide:
+  //   soft_aspiration_d_min_m       = min over (stage k, real target t) of
+  //                                   sqrt(dx_kt^2 + dy_kt^2) on the solved
+  //                                   trajectory. 0 when no real target seen.
+  //   soft_aspiration_violation_m   = max(0, cpa_safe - d_min_m).
+  //                                   >0 means the trajectory is INSIDE the
+  //                                   soft 2500 band but OUTSIDE the hard 1852
+  //                                   floor (legal but not ample-time). The
+  //                                   hard floor itself is enforced by the CPA
+  //                                   constraint row (true hard, nsh=0).
+  // Populated by MidMpcAcadosSolver::constraints_satisfied_ (acados path only).
+  // The IPOPT path leaves these at 0 (it has cpa_slack instead).
+  double soft_aspiration_d_min_m{0.0};
+  double soft_aspiration_violation_m{0.0};
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};

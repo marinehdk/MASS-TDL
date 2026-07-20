@@ -5,8 +5,9 @@
 // This test verifies the SYMBOL-GRAPH CONTRACT of the production acados
 // formulation (Path B 5-dim state, 2-dim control, documented global/per-stage
 // parameter partition), NOT a real acatos solve (that is Task 16+).
-// Parameter partition (P7): global=154 (26 IPOPT head scalars + 128 target block
-// with stride 8 for P7 intent/OU fields) + per-stage=56 (prefix psi/u + pact_pre
+// Parameter partition (Step5 方案 B): global=155 (26 IPOPT head scalars + 128
+// target block with stride 8 for P7 intent/OU fields + 1 appended kGIdxCpaHard
+// slot for the true hard CPA floor) + per-stage=56 (prefix psi/u + pact_pre
 // + per-target drifted x/y + tb_x/tb_y per-stage closest-point + per-target
 // sigma_pos (P7) + psi_prev/u_prev/w_trans_active (P5 T2)). See
 // mid_mpc_acados_formulation.hpp partition doc + static_assert.
@@ -56,8 +57,10 @@ TEST_F(AcadosFormulationTest, StateControlDims_MatchPathB) {
 
 // Parameter partition (T15 F2/F4 + P2 T3 + P5 T2 documented deviation from IPOPT
 // flat 142):
-//   global     = 154 (P7: 26 IPOPT head scalars + 16x8 target block — the
-//              stage-uniform portion, stride 8 for intent/OU fields).
+//   global     = 155 (Step5 方案 B: 26 IPOPT head scalars + 16x8 target block
+//              + 1 appended kGIdxCpaHard slot — the stage-uniform portion,
+//              stride 8 for intent/OU fields; cpa_hard slot is the true hard
+//              floor read by the CPA per-target constraint residual).
 //   per-stage  = 56  (P7: prefix psi/u scalars + pact_pre + per-stage target
 //              drift x/y + tb_x/tb_y per-stage closest-point
 //              + per-target sigma_pos (P7) + psi_prev/u_prev + w_trans_active
@@ -67,7 +70,7 @@ TEST_F(AcadosFormulationTest, StateControlDims_MatchPathB) {
 //              because the single-stage graph cannot index stage k; IPOPT folds
 //              these into its flat 142-vector + per-row bounds.
 TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
-  EXPECT_EQ(form_.np_global(), 154);     // P7: 26 head + 128 target (stride 8)
+  EXPECT_EQ(form_.np_global(), 155);     // Step5 方案 B: 26 head + 128 target + 1 cpa_hard
   EXPECT_EQ(form_.np_per_stage(), 56);   // P7: prefix+act+drift+tb+sigma+transition
   MidMpcInput in{};
   std::pair<std::vector<double>, std::vector<std::vector<double>>> r;
@@ -75,7 +78,7 @@ TEST_F(AcadosFormulationTest, ParamDims_MatchDocumentedPartition) {
   const auto& g = r.first;
   const auto& ps = r.second;
   ASSERT_FALSE(ps.empty());
-  EXPECT_EQ(static_cast<int>(g.size()), 154);
+  EXPECT_EQ(static_cast<int>(g.size()), 155);
   // Every per-stage vector has the SAME length (stage-uniform param layout).
   for (const auto& s : ps) {
     EXPECT_EQ(static_cast<int>(s.size()), 56)
@@ -249,7 +252,7 @@ TEST_F(AcadosFormulationTest, DiscDynExpr_NonNullFiveRows) {
   EXPECT_EQ(form_.disc_dyn_expr().size1(), 5);   // Path B 5-dim dynamics
   EXPECT_FALSE(form_.con_h_expr().is_null());
   EXPECT_EQ(form_.nh(), 20);                      // 2+16+1+1 (P4: abolished terminal C10/C11)
-  EXPECT_EQ(form_.np_global(), 154);              // P7: 26 head + 128 target block
+  EXPECT_EQ(form_.np_global(), 155);              // Step5 方案 B: 26 head + 128 target + 1 cpa_hard
   EXPECT_EQ(form_.np_per_stage(), 56);            // P7: 3+2*Nt+2 tb+Nt sigma+2 transition+1 active
 }
 

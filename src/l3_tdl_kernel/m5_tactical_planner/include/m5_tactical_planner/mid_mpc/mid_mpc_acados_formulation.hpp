@@ -89,8 +89,29 @@ constexpr int32_t kAcadosMaxTargets          = 16;   // == kMaxTargets (nlp_form
 constexpr int32_t kAcadosTargetStride        = 8;    // P7: was 5 (intent_conf, compliance, class)
 constexpr int32_t kAcadosNpGlobalTargetBlock =
     kAcadosMaxTargets * kAcadosTargetStride;         // 128 = 16*8
+// Step5 方案 B (VR-01 final, 2026-07-20): kGIdxCpaHard is appended at the END of
+// the existing global block (right after the target block), so the 26 head
+// scalars AND the 128-slot target block keep their offsets (minimal regression
+// surface). kGIdxTargets stays at 26; the CPA per-target rows still pack into
+// the 128-slot target block; only one NEW slot is appended for the hard floor.
+// The CPA per-target constraint residual (build_con_h_) reads cpa_hard_m from
+// this slot instead of the bumped cpa_safe — making the CPA row a TRUE hard
+// floor (nsh=0 in gen_mid_mpc_acados.py, no slack absorbs it). The soft 2500
+// aspiration is expressed ONLY by J_colreg's exp barrier (kGIdxCpaSafe).
+constexpr int32_t kAcadosGIdxCpaHard =
+    kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock;  // 154 (appended)
 constexpr int32_t kAcadosNpGlobal =
-    kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock;  // 154 = 26 + 128
+    kAcadosNpGlobalHeadScalars + kAcadosNpGlobalTargetBlock + 1;  // 155 = 26 + 128 + 1
+
+// Public alias for the soft-aspiration slot index (Step5 方案 B code-review M1):
+// kGIdxCpaSafe lives in the anonymous namespace inside mid_mpc_acados_formulation.cpp
+// (it is a legacy head-scalar slot), so it is not directly nameable from other
+// translation units. This public alias mirrors its value (10) so the solver
+// wrapper (mid_mpc_acados_solver.cpp constraints_satisfied_) and tests can refer
+// to it by name instead of hardcoding the literal — keeping the slot arithmetic
+// auditable. If the head-scalar layout ever changes, update kGIdxCpaSafe in the
+// .cpp AND this alias together (they MUST agree).
+constexpr int32_t kAcadosGIdxCpaSafe = 10;  // legacy head-scalar slot for cpa_safe_m
 
 // Per-stage parameter layout (T15 F2/F4 + P2 T3 + P5 T2 + P7 σ_pos). Each stage
 // k carries only the scalars that stage needs:
@@ -151,8 +172,10 @@ constexpr int32_t kAcadosGIdxPlannedSpeed      = 5;
 static_assert(kAcadosNpPerStageDefault == 56,
 	              "acados np_per_stage(P7) = 3 + 2*Nt + 2 tb + Nt sigma + 2 transition + "
 	              "1 active = 56 at Nt=16; update if params change");
-static_assert(kAcadosNpGlobal == 154,
-	              "acados np_global(P7) = 26 head + 128 target = 154 (stride 8)");
+static_assert(kAcadosNpGlobal == 155,
+		              "acados np_global(Step5 方案 B) = 26 head + 128 target + 1 cpa_hard = 155; "
+                  "the appended kGIdxCpaHard slot makes the CPA row a true hard floor "
+                  "(see review/2026-07-20-step5-plan-b-nh20-agent_8ae45f72.md)");
 
 // Production acatos OCP symbol graph (MX). Path B 5-dim state, 2-dim control,
 // 6 costs + full constraints + 106-global / 37-per-stage partition.
@@ -163,9 +186,10 @@ static_assert(kAcadosNpGlobal == 154,
 // acados backend; the IPOPT MidMpcNlpFormulation stays the default otherwise.
 class MidMpcAcadosFormulation {
  public:
-  // Parameter dimension accounting (T15 F2/F4 + P2 T3 + P7):
-  //   kParamDimGlobal = 154 (IPOPT stage-uniform portion: 26 head + 128 target
-  //                          with stride 8 for P7 intent/OU fields)
+  // Parameter dimension accounting (T15 F2/F4 + P2 T3 + P7 + Step5 方案 B):
+  //   kParamDimGlobal = 155 (IPOPT stage-uniform portion: 26 head + 128 target
+  //                          with stride 8 for P7 intent/OU fields, + 1 appended
+  //                          kGIdxCpaHard slot for the true hard CPA floor)
   //   kParamDimPerStage = 56 (acados per-stage expansion: prefix + act + drift
   //                          + tb_x/tb_y per-stage closest-point + per-target
   //                          σ_pos (P7) + psi_prev/u_prev/w_trans (P5 T2))
@@ -173,7 +197,7 @@ class MidMpcAcadosFormulation {
   // acados backend expands per-stage (drift precomputed, activation factor,
   // per-stage t_b) because the single-stage graph cannot index stage k. See
   // partition doc.
-  static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 154 (P7)
+  static constexpr int32_t kParamDimGlobal    = kAcadosNpGlobal;          // 155 (Step5 方案 B)
   static constexpr int32_t kParamDimPerStage  = kAcadosNpPerStageDefault; // 56 (P7)
   // Production default horizon N (P4: horizon_s=1200s / dt_s=15 -> N=80; was 18).
   // RFC-001: 90s locked design overturned 2026-07-16 Step2 (user-authorized).
@@ -310,10 +334,10 @@ class MidMpcAcadosFormulation {
   Config cfg_;
   std::string solver_name_{"m5_mid_mpc_acados"};
 
-  // CasADi MX symbol-graph members. State x=[px,py,psi,r,u_surge] (5),
-  // control u=[delta,n] (2). p_global (154 P7) is stage-uniform; p_stage (56 P7)
-  // is per-stage (prefix psi/u scalars + pact_pre + per-target drift x/y +
-  // per-stage t_b closest-point tb_x/tb_y + per-target sigma_pos(P7) +
+  // CasADi MX graph members. State x=[px,py,psi,r,u_surge] (5),
+  // control u=[delta,n] (2). p_global (155 Step5 方案 B) is stage-uniform; p_stage
+  // (56 P7) is per-stage (prefix psi/u scalars + pact_pre + per-target drift x/y
+  // + per-stage t_b closest-point tb_x/tb_y + per-target sigma_pos(P7) +
   // psi_prev/u_prev/w_trans_active(P5 T2)).
   casadi::MX x_, u_, p_global_, p_stage_;
   casadi::MX disc_dyn_expr_;  // x[k+1] = f_disc(x[k], u[k], p)  (5 rows)
