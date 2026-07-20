@@ -383,7 +383,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
 
   const visibleRows = useMemo(() => sessions.map(toRow), [sessions]);
   const totalPages = data?.total_pages ?? 1;
-  const displayedPage = data?.page ?? page;
+  const displayedPage = currentData?.page ?? page;
   const visibleSelectableRows = visibleRows.filter(
     (row) => row.raw.deletion_allowed && row.raw.deletion_target,
   );
@@ -440,8 +440,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [searchText]);
 
   useEffect(() => {
-    if (!isFetching && data && data.page !== page) setPage(data.page);
-  }, [data, isFetching, page]);
+    if (!isFetching && currentData && currentData.page !== page) setPage(currentData.page);
+  }, [currentData, isFetching, page]);
 
   const recordPendingCleanup = useCallback((results: EvidenceLibraryDeleteResult[]) => {
     const next = new Map(pendingCleanupByPathRef.current);

@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   sessionsHasData: true,
   sessionsIsError: false,
   sessionsError: null as unknown,
+  useRealSessionsQuery: false,
   rescan: vi.fn(),
   rescanUnwrap: vi.fn(),
   rescanIsLoading: false,
@@ -43,32 +44,39 @@ const defaultSessionsQuery: EvidenceLibrarySessionsQuery = {
   sort_direction: 'desc',
 };
 
-vi.mock('../../../api/silApi', () => ({
-  useGetEvidenceLibrarySessionsQuery: (query?: EvidenceLibrarySessionsQuery) => {
-    apiMocks.lastSessionsQuery = query ?? null;
-    if (query) apiMocks.sessionsQueryHistory.push(query);
-    return {
-    data: apiMocks.sessionsHasData
-      ? apiMocks.sessionsResponseOverride ?? buildSessionsResponse(query)
-      : undefined,
-    isLoading: apiMocks.sessionsIsLoading,
-    isFetching: apiMocks.sessionsIsFetching,
-    isError: apiMocks.sessionsIsError,
-    error: apiMocks.sessionsError,
-    refetch: apiMocks.refetch,
+vi.mock('../../../api/silApi', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/silApi')>('../../../api/silApi');
+  return {
+    ...actual,
+    useGetEvidenceLibrarySessionsQuery: (query: EvidenceLibrarySessionsQuery) => {
+      if (apiMocks.useRealSessionsQuery) return actual.useGetEvidenceLibrarySessionsQuery(query);
+      apiMocks.lastSessionsQuery = query ?? null;
+      if (query) apiMocks.sessionsQueryHistory.push(query);
+      const data = apiMocks.sessionsHasData
+        ? apiMocks.sessionsResponseOverride ?? buildSessionsResponse(query)
+        : undefined;
+      return {
+        data,
+        currentData: data,
+        isLoading: apiMocks.sessionsIsLoading,
+        isFetching: apiMocks.sessionsIsFetching,
+        isError: apiMocks.sessionsIsError,
+        error: apiMocks.sessionsError,
+        refetch: apiMocks.refetch,
+      };
+    },
+    useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
+    useLazyGetEvidenceLibraryRescanStatusQuery: () => [apiMocks.getRescanStatus],
+    useDeleteEvidenceLibrarySessionMutation: () => [
+      apiMocks.deleteSession,
+      { isLoading: apiMocks.deleteIsLoading, error: null },
+    ],
+    useBatchDeleteEvidenceLibrarySessionsMutation: () => [
+      apiMocks.batchDeleteSessions,
+      { isLoading: apiMocks.batchDeleteIsLoading, error: null },
+    ],
   };
-  },
-  useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
-  useLazyGetEvidenceLibraryRescanStatusQuery: () => [apiMocks.getRescanStatus],
-  useDeleteEvidenceLibrarySessionMutation: () => [
-    apiMocks.deleteSession,
-    { isLoading: apiMocks.deleteIsLoading, error: null },
-  ],
-  useBatchDeleteEvidenceLibrarySessionsMutation: () => [
-    apiMocks.batchDeleteSessions,
-    { isLoading: apiMocks.batchDeleteIsLoading, error: null },
-  ],
-}));
+});
 
 const primarySession = {
   evidence_id: '12345678-90ab-cdef-1234-567890abcdef',
@@ -306,6 +314,7 @@ beforeEach(() => {
   apiMocks.sessionsHasData = true;
   apiMocks.sessionsIsError = false;
   apiMocks.sessionsError = null;
+  apiMocks.useRealSessionsQuery = false;
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
   apiMocks.rescanIsLoading = false;
@@ -2192,6 +2201,58 @@ describe('evidence library RTK invalidation', () => {
     });
     return { silApi, store };
   };
+
+  it('keeps the failed requested page active while rendering the last fulfilled page', async () => {
+    const requestedPages: string[] = [];
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      if (typeof input === 'string') return configIdentityResponse();
+      const url = new URL(input.url);
+      if (url.pathname.endsWith('/evidence-library/config')) return configIdentityResponse();
+
+      const requestedPage = url.searchParams.get('page') ?? '';
+      requestedPages.push(requestedPage);
+      if (requestedPage === '2') return jsonResponse({ detail: 'page unavailable' }, 500);
+      return jsonResponse({
+        sessions: [primarySession],
+        total: 21,
+        filtered_total: 21,
+        page: 1,
+        page_size: 20,
+        total_pages: 2,
+        facets: { result: [], scenarioCount: [], mode: [], scenario: [], source: [], worktree: [] },
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    apiMocks.useRealSessionsQuery = true;
+    const view = render(
+      <Provider store={store}>
+        <EvidenceLibraryView onOpen={vi.fn()} />
+      </Provider>,
+    );
+
+    try {
+      await screen.findByRole('button', { name: `删除 ${primarySession.session_id}` });
+      expect(screen.getByText('1 / 2')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+
+      await waitFor(() => expect(requestedPages).toEqual(['1', '2']));
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败'));
+      expect(screen.getByRole('alert')).toHaveTextContent('500');
+      expect(screen.getByRole('button', { name: `删除 ${primarySession.session_id}` })).toBeInTheDocument();
+      expect(screen.getByText('2 / 2')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '上一页' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
+
+      await act(async () => Promise.resolve());
+      expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败');
+      expect(requestedPages).toEqual(['1', '2']);
+    } finally {
+      view.unmount();
+      apiMocks.useRealSessionsQuery = false;
+      vi.unstubAllGlobals();
+    }
+  });
 
   it('serializes every evidence-list query parameter exactly', async () => {
     let requestedUrl = '';
