@@ -5,6 +5,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -1309,6 +1310,31 @@ _MODE_LABELS = {
 }
 _OUTCOME_LABELS = {"passed": "通过", "failed": "不通过", "unknown": "-"}
 _SOURCE_LABELS = {"cli": "CLI", "front": "Front"}
+_MODE_SORT_ORDER = {"avoidance": 0, "debug": 1, "cohort": 2, "full": 3}
+_OUTCOME_SORT_ORDER = {"unknown": 0, "failed": 1, "passed": 2}
+_NATURAL_TOKEN_RE = re.compile(r"\d+|\D+")
+_SESSION_ID_TIME_RE = re.compile(r"^(\d{8})_(\d{6})")
+
+
+def _natural_text_sort_key(value: Any) -> tuple[tuple[int, Any], ...]:
+    return tuple(
+        (1, int(token)) if token.isdigit() else (0, token.casefold())
+        for token in _NATURAL_TOKEN_RE.findall(str(value))
+    )
+
+
+def _absolute_time_sort_key(value: Any) -> tuple[int, Any]:
+    text = str(value or "")
+    try:
+        parsed = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith("Z") else text)
+    except ValueError:
+        match = _SESSION_ID_TIME_RE.match(text)
+        if match is None:
+            return (0, _natural_text_sort_key(text))
+        parsed = datetime.strptime("".join(match.groups()), "%Y%m%d%H%M%S")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return (1, parsed.astimezone(timezone.utc).timestamp())
 
 
 def _session_list_mode(session: dict[str, Any]) -> str:
@@ -1471,13 +1497,13 @@ def _filter_and_page_session_records(
         and (query.worktree is None or record["_worktree"] == query.worktree)
     ]
     sort_keys: dict[str, Callable[[dict[str, Any]], Any]] = {
-        "time": lambda record: record["_time"],
-        "result": lambda record: _OUTCOME_LABELS[record["_outcome"]],
+        "time": lambda record: _absolute_time_sort_key(record["_time"]),
+        "result": lambda record: _OUTCOME_SORT_ORDER[record["_outcome"]],
         "scenarioCount": lambda record: len(record["scenario_ids"]),
-        "mode": lambda record: _MODE_LABELS[record["_mode"]],
-        "scenario": lambda record: record["_scenario"],
-        "source": lambda record: record["_source_label"],
-        "worktree": lambda record: record["_worktree"],
+        "mode": lambda record: _MODE_SORT_ORDER[record["_mode"]],
+        "scenario": lambda record: _natural_text_sort_key(record["_scenario"]),
+        "source": lambda record: _natural_text_sort_key(record["_source_label"]),
+        "worktree": lambda record: _natural_text_sort_key(record["_worktree"]),
     }
     filtered.sort(key=lambda record: str(record["evidence_id"]))
     filtered.sort(key=sort_keys[query.sort_key], reverse=query.sort_direction == "desc")

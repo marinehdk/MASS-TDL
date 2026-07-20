@@ -284,6 +284,7 @@ async def test_sessions_route_forwards_complete_query(tmp_path, monkeypatch):
         "sort_direction=bad",
         "result=bad",
         "scenario_count=-1",
+        "mode=bad",
         "limit=500",
     ],
 )

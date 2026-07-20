@@ -21,19 +21,12 @@ MODE_SUITES = {
     "full": "clean12",
     "avoidance": "single",
 }
-MODE_LABELS = {
-    "debug": "调试验证",
-    "cohort": "同类验证",
-    "full": "完整验证",
-    "avoidance": "避碰验证",
-}
 
 
 @dataclass
 class PagedLibrary:
     repo: Path
     session_paths: list[Path]
-    sort_values: dict[str, dict[str, str | int]]
 
     def remove_session_path(self, index: int) -> None:
         (self.session_paths[index] / "manifest.json").unlink()
@@ -46,7 +39,6 @@ def paged_library(tmp_path, monkeypatch) -> PagedLibrary:
     config_home = tmp_path / "config"
     monkeypatch.setenv("MASS_L3_CONFIG_HOME", str(config_home))
     session_paths: list[Path] = []
-    sort_values: dict[str, dict[str, str | int]] = {}
     session_rows = []
     scenario_rows = []
     base_time = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -102,29 +94,6 @@ def paged_library(tmp_path, monkeypatch) -> PagedLibrary:
                 (evidence_id, session_id, scenario_id, "pass" if overall_pass else "fail", overall_pass)
             )
 
-        outcome = "unknown" if scenario_count == 0 else "passed" if index % 2 == 0 else "failed"
-        scenario_label = (
-            "-"
-            if not scenario_ids
-            else ", ".join(scenario_ids)
-            if len(scenario_ids) <= 2
-            else f"{scenario_ids[0]} +{len(scenario_ids) - 1}"
-        )
-        worktree = (
-            ""
-            if source == "frontend"
-            else f"tree-{'a' if index % 4 == 1 else 'b'}"
-        )
-        sort_values[evidence_id] = {
-            "time": created_at,
-            "result": {"unknown": "-", "failed": "不通过", "passed": "通过"}[outcome],
-            "scenarioCount": scenario_count,
-            "mode": MODE_LABELS[mode],
-            "scenario": scenario_label,
-            "source": "CLI" if source == "cli" else "Front",
-            "worktree": worktree,
-        }
-
     with open_initialized() as conn:
         conn.executemany(
             """
@@ -146,7 +115,7 @@ def paged_library(tmp_path, monkeypatch) -> PagedLibrary:
         )
         conn.commit()
 
-    return PagedLibrary(repo=repo, session_paths=session_paths, sort_values=sort_values)
+    return PagedLibrary(repo=repo, session_paths=session_paths)
 
 
 def test_lists_exact_total_without_global_cap(paged_library):
@@ -242,45 +211,104 @@ def test_searches_raw_and_localized_visible_fields(
         assert all(row[expected_field] == expected_value for row in result["sessions"])
 
 
-@pytest.mark.parametrize(
-    "sort_key",
-    ["time", "result", "scenarioCount", "mode", "scenario", "source", "worktree"],
-)
-@pytest.mark.parametrize("sort_direction", ["asc", "desc"])
-def test_sorts_every_key_across_pages_with_fixed_ascending_tie_break(
-    paged_library,
-    sort_key,
-    sort_direction,
-):
-    pages = [
-        list_sessions(
-            EvidenceSessionListQuery(
-                page=page,
-                sort_key=sort_key,
-                sort_direction=sort_direction,
-            ),
-            repo_root=paged_library.repo,
-        )
-        for page in (1, 2)
-    ]
-    actual_ids = [row["evidence_id"] for result in pages for row in result["sessions"]]
-    expected_ids = sorted(paged_library.sort_values)
-    expected_ids.sort(
-        key=lambda evidence_id: paged_library.sort_values[evidence_id][sort_key],
-        reverse=sort_direction == "desc",
-    )
+def _sort_record(evidence_id: str) -> dict:
+    return {
+        "evidence_id": evidence_id,
+        "_search": "",
+        "_time": "2026-01-01T01:00:00Z",
+        "_outcome": "failed",
+        "scenario_ids": ["a", "b", "c"],
+        "_mode": "debug",
+        "_scenario": "rule-3",
+        "_source_label": "Dock-3",
+        "_worktree": "tree-3",
+    }
 
-    assert actual_ids == expected_ids[:40]
-    primary_values = [paged_library.sort_values[evidence_id][sort_key] for evidence_id in actual_ids]
-    assert primary_values == sorted(primary_values, reverse=sort_direction == "desc")
-    equal_key_pairs = [
-        (left, right)
-        for left, right in zip(actual_ids, actual_ids[1:])
-        if paged_library.sort_values[left][sort_key]
-        == paged_library.sort_values[right][sort_key]
-    ]
-    assert equal_key_pairs
-    assert all(left < right for left, right in equal_key_pairs)
+
+def _canonical_sort_records(sort_key: str) -> list[dict]:
+    records = [_sort_record(f"evidence-{index:02d}") for index in range(22)]
+    low = records[1]
+    high = records[0]
+    if sort_key == "time":
+        low["_time"] = "2026-01-01T00:30:00Z"
+        high["_time"] = "2026-01-01T02:00:00Z"
+        for index, record in enumerate(records[2:], start=2):
+            record["_time"] = (
+                "2026-01-01T01:00:00Z"
+                if index % 2
+                else "2026-01-01T09:00:00+08:00"
+            )
+    elif sort_key == "result":
+        low["_outcome"] = "unknown"
+        high["_outcome"] = "passed"
+    elif sort_key == "scenarioCount":
+        low["scenario_ids"] = ["a", "b"]
+        high["scenario_ids"] = [str(index) for index in range(10)]
+    elif sort_key == "mode":
+        low["_mode"] = "avoidance"
+        records[2]["_mode"] = "cohort"
+        high["_mode"] = "full"
+    elif sort_key == "scenario":
+        low["_scenario"] = "rule-2"
+        high["_scenario"] = "rule-10"
+    elif sort_key == "source":
+        low["_source_label"] = "CLI"
+        high["_source_label"] = "Front"
+    elif sort_key == "worktree":
+        low["_worktree"] = "tree-2"
+        high["_worktree"] = "tree-10"
+    return records
+
+
+COMMON_ASC = ["evidence-01", *[f"evidence-{index:02d}" for index in range(2, 22)], "evidence-00"]
+COMMON_DESC = ["evidence-00", *[f"evidence-{index:02d}" for index in range(2, 22)], "evidence-01"]
+MODE_ASC = [
+    "evidence-01",
+    *[f"evidence-{index:02d}" for index in range(3, 22)],
+    "evidence-02",
+    "evidence-00",
+]
+MODE_DESC = [
+    "evidence-00",
+    "evidence-02",
+    *[f"evidence-{index:02d}" for index in range(3, 22)],
+    "evidence-01",
+]
+
+
+@pytest.mark.parametrize(
+    ("sort_key", "expected_asc", "expected_desc"),
+    [
+        ("time", COMMON_ASC, COMMON_DESC),
+        ("result", COMMON_ASC, COMMON_DESC),
+        ("scenarioCount", COMMON_ASC, COMMON_DESC),
+        ("mode", MODE_ASC, MODE_DESC),
+        ("scenario", COMMON_ASC, COMMON_DESC),
+        ("source", COMMON_ASC, COMMON_DESC),
+        ("worktree", COMMON_ASC, COMMON_DESC),
+    ],
+)
+def test_canonical_sort_semantics_across_pages(sort_key, expected_asc, expected_desc):
+    records = _canonical_sort_records(sort_key)
+
+    def sorted_ids(direction: str) -> list[str]:
+        page_ids = []
+        for page in (1, 2):
+            page_records, filtered_total, normalized_page = service._filter_and_page_session_records(
+                records,
+                EvidenceSessionListQuery(
+                    page=page,
+                    sort_key=sort_key,
+                    sort_direction=direction,
+                ),
+            )
+            assert filtered_total == 22
+            assert normalized_page == page
+            page_ids.extend(record["evidence_id"] for record in page_records)
+        return page_ids
+
+    assert sorted_ids("asc") == expected_asc
+    assert sorted_ids("desc") == expected_desc
 
 
 def test_rebuilds_page_when_path_disappears_after_initial_eligibility(

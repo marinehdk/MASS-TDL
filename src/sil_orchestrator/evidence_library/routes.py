@@ -58,7 +58,7 @@ async def sessions(
     sort_direction: Literal["asc", "desc"] = "desc",
     result: Literal["passed", "failed", "unknown"] | None = None,
     scenario_count: Annotated[int | None, Query(ge=0)] = None,
-    mode: str | None = None,
+    mode: Literal["avoidance", "debug", "cohort", "full"] | None = None,
     scenario: str | None = None,
     source: str | None = None,
     worktree: str | None = None,
