@@ -3680,3 +3680,48 @@ unchanged scans incremental, honor force rescans, and expose live progress.
 - `codex-gnc-validation` M5 containers were not restarted or reconfigured;
   all restart counts remain zero and their 18000/18765/3000 listeners remain.
 - Branch is committed locally only; no push or merge performed.
+
+---
+
+## [2026-07-20] Codex / `c8774109e` / Evidence Library Server Pagination
+
+### Task Goal
+Remove the hidden Evidence Library result cap, report the real eligible-session
+count, and keep filtering, sorting, replay, deletion, and error handling correct
+across server-backed pages.
+
+### Core Changes
+- Replaced the bounded session-list response with validated server-side paging,
+  exact `total`/`filtered_total`, normalized pages, and global facets.
+- Preserved eligibility checks, deterministic evidence-ID tie-breaking, absolute
+  time ordering, natural numeric text ordering, and canonical UI mode ordering.
+- Moved frontend search, sort, and filters to explicit RTK Query arguments with
+  250 ms search debounce and API-owned totals/pages/facets.
+- Preserved cross-page selection snapshots and replay lookup for records outside
+  the rendered page; synchronized deletion across all cached page/filter keys.
+- Added explicit initial/background query errors and retained failed-page query
+  state while rendering the last fulfilled rows.
+
+### Current Status
+- Commits: `95554fd03`, `12ce710dd`, `06d39ae57`, `a567e0ba2`,
+  `8a6d554af`, `a91561363`, `20ce81259`, `c8774109e`.
+- Backend Evidence Library gate: 124 passed.
+- Frontend Evidence Library, Replay, and SimulationEvaluator gate: 103 passed.
+- TypeScript/Vite production build passed; only existing Foxglove eval and
+  chunk-size warnings remain.
+- Independent final review: PASS, zero Critical/Important/Minor findings.
+- Runtime API on 18001: 313 total and unique healthy sessions, page 1 has 20,
+  page 16 has 13, and `total_pages=16`; an independently counted worktree
+  filter matched `filtered_total=1`.
+- Headless browser on 5174 showed `记录数: 313`, `显示: 313`, 20 rows per page,
+  navigated 1/16 to 2/16, then reset to page 1 after search.
+
+### Handoff Notes
+- Runtime source: `.worktrees/evidence-rescan-background`, branch
+  `codex/evidence-rescan-background`; backend container
+  `l3-tdl-sil-orchestrator-1`, frontend PM2 process `l3-tdl-frontend`.
+- The `codex-gnc-validation` M5 stack was not restarted or reconfigured. All six
+  containers retained their original `StartedAt` values and restart count zero;
+  listeners 18000, 18765, and 3000 remained intact. Feature listeners are 18001
+  and 5174.
+- Branch remains local; no merge or push performed.
