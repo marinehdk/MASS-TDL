@@ -173,7 +173,9 @@ class MidMpcAcadosSolver {
                                             const std::vector<std::vector<double>>& ps,
                                             bool lateral_active,
                                             int n_targets,
-                                            int prefix_K);
+                                            int prefix_K,
+                                            int k_minalt,
+                                            int k_head);
 
  public:
   // S1 safety gate accessor: the MidMpcSolver dispatch reads this to decide

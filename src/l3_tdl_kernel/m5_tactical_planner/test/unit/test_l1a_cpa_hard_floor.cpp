@@ -232,7 +232,7 @@ TEST_F(CpaHardFloorTest, ParamIsolation_CpaHardDoesNotAffectCost_T_B6b) {
   constexpr double kCpaSafe = 2500.0;
   constexpr int kRowCpaBase = 2;
   constexpr int kDriftXOff = 3;
-  const double d = 1900.0;  // < cpa_safe (cost barrier active), > cpa_hard 1852
+  const double d = 2100.0;  // > both cpa_hard values (1852, 2000), < cpa_safe 2500
 
   // Residual path: cpa_hard change MUST move the residual threshold.
   auto run_residual = [&](double cpa_hard_val) -> double {
@@ -249,13 +249,12 @@ TEST_F(CpaHardFloorTest, ParamIsolation_CpaHardDoesNotAffectCost_T_B6b) {
 
   const double r_1852 = run_residual(1852.0);
   const double r_2000 = run_residual(2000.0);
-  // Both should be POSITIVE (d=1900 > both cpa_hard values) but DIFFERENT.
-  EXPECT_GT(r_1852, 0.0) << "d=1900 > cpa_hard=1852 -> residual > 0";
-  EXPECT_GT(r_2000, 0.0) << "d=1900 > cpa_hard=2000 -> residual > 0";
-  // The residual difference = (1900^2 - 2000^2) - (1900^2 - 1852^2)
-  //                        = 1852^2 - 2000^2 = -560_296 m^2.
+  // Both should be POSITIVE (d > both cpa_hard values): h = d^2 - cpa_hard^2
+  EXPECT_GT(r_1852, 0.0) << "d=2100 > cpa_hard=1852 -> residual > 0 (compliant)";
+  EXPECT_GT(r_2000, 0.0) << "d=2100 > cpa_hard=2000 -> residual > 0 (compliant)";
+  // The residual difference: (2100^2 - 1852^2) - (2100^2 - 2000^2) = 2000^2 - 1852^2 = +570_096
   EXPECT_NEAR(r_1852 - r_2000,
-              1852.0 * 1852.0 - 2000.0 * 2000.0, 1.0)
+              2000.0 * 2000.0 - 1852.0 * 1852.0, 1.0)
       << "cpa_hard_m change moves the residual threshold by the expected delta";
 
   // Cost path: build a Function over J_colreg (the soft aspiration barrier).

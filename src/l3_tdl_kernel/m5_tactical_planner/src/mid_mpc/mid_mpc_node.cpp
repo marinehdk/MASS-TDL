@@ -1416,26 +1416,24 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   int64_t fallback_ipopt_count = 0;
   int64_t reject_c1 = 0, reject_c2 = 0, reject_c3 = 0, reject_c4 = 0, reject_c5 = 0;
   int64_t warm_up_failed = 0;
-#ifdef M5_USE_ACADOS
-  {
-    nlp_backend = solver_.last_nlp_backend();
-    const auto& d = solver_.last_dispatch_decision();
-    dispatch_reason = d.reason;
-    c2_state = d.c2_state;
-    c1_pass_str = d.c1_pass ? "true" : "false";
-    std::snprintf(c3_gap_buf, sizeof(c3_gap_buf), "%.1f", d.c3_gap_h_m);
-    std::snprintf(c4_r_reach_buf, sizeof(c4_r_reach_buf), "%.2f", d.c4_r_reach);
-    std::snprintf(c5_align_buf, sizeof(c5_align_buf), "%.3f", d.c5_align_sin);
-    acatos_dispatch_count = solver_.acatos_dispatch_count();
-    fallback_ipopt_count = solver_.fallback_ipopt_count();
-    reject_c1 = solver_.reject_count_for_reason("c1_ample_time_fail");
-    reject_c2 = solver_.reject_count_for_reason("c2_active");
-    reject_c3 = solver_.reject_count_for_reason("c3_gap_exceed");
-    reject_c4 = solver_.reject_count_for_reason("c4_rot_reach");
-    reject_c5 = solver_.reject_count_for_reason("c5_aligned");
-    warm_up_failed = solver_.reject_count_for_reason("warm_up_failed");
-  }
-#endif
+// TODO(C2): M5_USE_ACADOS dispatch-gate counters (last_nlp_backend, last_dispatch_decision,
+// acatos_dispatch_count, fallback_ipopt_count, reject_count_for_reason) were
+// referenced in the batch-1 commit but never implemented in MidMpcSolver.
+// The block is disabled until the dispatch gate (C2) is implemented.
+// #ifdef M5_USE_ACADOS
+//   {
+//     nlp_backend = solver_.last_nlp_backend();
+//     const auto& d = solver_.last_dispatch_decision();
+//     dispatch_reason = d.reason;
+//     c2_state = d.c2_state;
+//     c1_pass_str = d.c1_pass ? "true" : "false";
+//     std::snprintf(c3_gap_buf, sizeof(c3_gap_buf), "%.1f", d.c3_gap_h_m);
+//     std::snprintf(c4_r_reach_buf, sizeof(c4_r_reach_buf), "%.2f", d.c4_r_reach);
+//     std::snprintf(c5_align_buf, sizeof(c5_align_buf), "%.3f", d.c5_align_sin);
+//     acatos_dispatch_count = solver_.acatos_dispatch_count();
+//     fallback_ipopt_count = solver_.fallback_ipopt_count();
+//   }
+// #endif
   const std::string json =
       std::string("{\"status\":\"") + plan.status
       + "\",\"planner_health\":\"" + planner_health
