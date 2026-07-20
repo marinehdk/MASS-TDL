@@ -978,6 +978,10 @@ void MidMpcNode::on_solve_cycle_()
       && mass_l3::m5::heading_window_is_wrapped(
           input.constraints.heading_min_rad, input.constraints.heading_max_rad);
   formulation_.set_constraint_inputs(input.constraints);
+  // Q4 (BL-15): set the active prefix length for σ-conditional CPA slack.
+  // Prefix-stage rows (k < K) get no σ in the CPA expression; only suffix rows
+  // get the σ safety net. Must be set before build_symbolic_graph().
+  formulation_.set_prefix_K(std::max(0, input.prefix_active_k));
 
   // Fix #8 (2026-07-07): only rebuild the CasADi symbolic graph when the
   // constraint structure changes. Rebuilding every cycle (legacy) creates a

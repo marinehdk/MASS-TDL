@@ -241,15 +241,17 @@ ConstraintCompiler::compile_colregs_rules(
 // ===========================================================================
 // compile_cpa_distance() — CPA constraint: d_k^2 - cpa_hard^2 + sigma >= 0
 // Per (target, step). Target is constant-velocity from cog/sog.
-// Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
-// making the feasible region non-empty by construction regardless of geometry.
-// ===========================================================================
+  // Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
+  // making the feasible region non-empty by construction regardless of geometry.
+  // Q4 (BL-15): sigma is only added to rows with k >= prefix_K. Prefix-stage
+  // rows (k < prefix_K) keep the hard-only form d_k^2 - cpa_hard^2.
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance(
     const casadi::MX& psi_seq,
     const casadi::MX& u_seq,
     const ConstraintInputs& inputs,
     double dt_s,
-    const casadi::MX& slack) const {
+    const casadi::MX& slack,
+    int32_t prefix_K) const {
   const int32_t N  = static_cast<int32_t>(psi_seq.size1());
   const int32_t Nt = static_cast<int32_t>(inputs.targets.size());
   if (N < 1 || Nt < 1) { return {}; }
@@ -287,7 +289,13 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
       const casadi::MX dx = cx - casadi::DM(tx);
       const casadi::MX dy = cy - casadi::DM(ty);
       casadi::MX row = dx * dx + dy * dy - cpa_safe_sq;
-      if (slack_active) {
+      // Q4 (BL-15): σ only added to suffix rows (k >= prefix_K). Prefix-stage
+      // rows keep the legacy hard-only form — they are already bounds-softened
+      // by RowBoundConfig::apply_colreg_prefix_soften_, so σ in the expression
+      // is both unnecessary (bounds are [-inf,+inf]) and harmful (σ is a single
+      // scalar; a prefix violation absorbed by σ reduces slack headroom for
+      // suffix rows, creating a false-negative fail-open).
+      if (slack_active && k >= prefix_K) {
         row = row + slack;
       }
       g_rows.push_back(row);

@@ -163,6 +163,11 @@ class MidMpcNlpFormulation {
     constraint_inputs_ = inputs;
   }
 
+  // Set the active committed-prefix length K (C1, §6.3) for σ-conditional
+  // CPA slack (Q4, BL-15). Must be called before build_symbolic_graph() when
+  // sigma is active. Default 0 = no prefix (σ on all CPA rows, legacy behavior).
+  void set_prefix_K(int32_t K) noexcept { prefix_K_ = K; }
+
   // Cached nlpsol Function (called by MidMpcSolver per cycle).
   [[nodiscard]] const casadi::Function& solver() const noexcept { return solver_; }
   // Fix #8: true after at least one successful build_symbolic_graph() call.
@@ -219,6 +224,10 @@ class MidMpcNlpFormulation {
   mutable RowRegistry row_registry_;
   mass_l3::m5::shared::ConstraintCompiler compiler_{};
   ConstraintInputs constraint_inputs_{};
+  // Q4 (BL-15): active prefix length K for σ-conditional CPA slack.
+  // Default 0 = no prefix (σ on all rows, legacy behavior). Set by solver
+  // before build_symbolic_graph() via set_prefix_K().
+  int32_t prefix_K_{0};
 
   // Dimension helper (kept for symmetry with CasADi MX::sym signature).
   [[nodiscard]] static int32_t parameter_dim_() noexcept { return kParamDim; }

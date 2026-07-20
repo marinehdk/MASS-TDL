@@ -92,12 +92,23 @@ class ConstraintCompiler {
   // structural Infeasibility; sigma activates only when geometry is genuinely
   // unreachable). When empty (slack disabled), behavior is the legacy
   // hard-only form d_k^2 - cpa_hard^2 >= 0.
+  //
+  // Q4 σ-conditional fix (BL-15, L1b ③): sigma is only added to rows with
+  // k >= prefix_K. Prefix-stage rows (k < prefix_K) are already bounds-softened
+  // by RowBoundConfig::apply_colreg_prefix_soften_, so adding sigma to those
+  // rows has no effect on feasibility but wastes the slack variable on frozen-
+  // geometry rows that the solver cannot change. Worse, sigma is a SINGLE
+  // scalar shared across ALL CPA rows — a prefix violation absorbed by sigma
+  // would reduce the slack headroom available to suffix (k >= prefix_K) rows,
+  // creating a false-negative fail-open (Converged + sigma > 0 instead of
+  // Infeasible). Default 0 = legacy behavior (sigma on all rows).
   [[nodiscard]] CompiledConstraints compile_cpa_distance(
       const casadi::MX& psi_seq,
       const casadi::MX& u_seq,
       const ConstraintInputs& inputs,
       double dt_s,
-      const casadi::MX& slack = casadi::MX()) const;
+      const casadi::MX& slack = casadi::MX(),
+      int32_t prefix_K = 0) const;
 
   [[nodiscard]] CompiledConstraints compile_colregs_rules(
       const casadi::MX& psi_seq,

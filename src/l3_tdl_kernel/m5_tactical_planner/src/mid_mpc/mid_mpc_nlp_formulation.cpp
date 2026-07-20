@@ -576,8 +576,9 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   // ConstraintCompiler rows (numeric-baked; G1 rebuild model).
   // Phase 3.1 (spec v2.3 §2.2): forward σ to compile_cpa_distance so every
   // CPA row gets +sigma in the expression (feasibility-preserving slack).
+  // Q4 (BL-15): prefix_K_ gates σ-conditional — only suffix rows get sigma.
   const auto cpa_cc = compiler_.compile_cpa_distance(
-      psi_, u_, constraint_inputs_, cfg_.dt_s, sigma_);
+      psi_, u_, constraint_inputs_, cfg_.dt_s, sigma_, prefix_K_);
   const auto rule_cc = compiler_.compile_colregs_rules(
       psi_, u_, constraint_inputs_);
   const auto zone_cc = compiler_.compile_zone_constraints(
