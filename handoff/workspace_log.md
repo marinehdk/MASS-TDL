@@ -3642,3 +3642,41 @@ Merge the Evidence Library replay/database management branch into the local
   promotion-gate robustness fixes on top of the merged feature branch.
 - Temporary `colregs-nlp-cpa-fix` containers were stopped to avoid ROS domain
   contamination during verification.
+
+---
+
+## [2026-07-20] Codex / `58dd5e285` / Evidence Library Background Rescan
+
+### Task Goal
+Prevent manual Evidence Library scans from blocking the evaluator, make
+unchanged scans incremental, honor force rescans, and expose live progress.
+
+### Core Changes
+- Replaced synchronous rescan route with a process-local, single-flight worker
+  and immediate HTTP 202 job snapshot.
+- Added rescan status/progress API with terminal success and failure states.
+- Skipped sessions whose source mtime and successful ingest record are
+  unchanged; `force=true` always reingests.
+- Kept loaded evidence rows visible while the frontend polls scan progress,
+  then refreshed once at terminal completion.
+- Updated the broader frontend-finalize/evidence-rescan contract test for the
+  asynchronous API.
+
+### Current Status
+- Commits: `fb403be0e`, `98116e655`, `58dd5e285`.
+- Evidence backend combined suite: 88 passed.
+- Evaluator/replay frontend suite: 78 passed; TypeScript/Vite build passed.
+- A4000 display runtime: POST returned in 10 ms; 316 sessions processed,
+  313 skipped, 0 reingested; health stayed 9-13 ms and session list 14-48 ms.
+- Headless browser retained indexed rows, showed progress, and never rendered
+  `Loading evidence` during scan.
+
+### Handoff Notes
+- Display backend runs from `.worktrees/evidence-rescan-background` on 18001;
+  PM2 frontend runs from the same worktree on 5174.
+- Three incomplete `m5-design-grounding` evidence manifests report JSON parse
+  errors but do not block the remaining scan; they require separate artifact
+  cleanup if those sessions should be indexed.
+- `codex-gnc-validation` M5 containers were not restarted or reconfigured;
+  all restart counts remain zero and their 18000/18765/3000 listeners remain.
+- Branch is committed locally only; no push or merge performed.
