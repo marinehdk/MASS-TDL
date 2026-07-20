@@ -296,8 +296,47 @@ export interface EvidenceLibrarySession {
   ingest_error?: string | null;
 }
 
+export type EvidenceLibrarySortKey = 'time' | 'result' | 'scenarioCount' | 'mode' | 'scenario' | 'source' | 'worktree';
+export type EvidenceLibraryOutcome = 'passed' | 'failed' | 'unknown';
+
+export interface EvidenceLibraryFacetOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface EvidenceLibrarySessionsQuery {
+  page: number;
+  page_size: 20 | 50;
+  search?: string;
+  sort_key: EvidenceLibrarySortKey;
+  sort_direction: 'asc' | 'desc';
+  result?: EvidenceLibraryOutcome;
+  scenario_count?: number;
+  mode?: string;
+  scenario?: string;
+  source?: string;
+  worktree?: string;
+}
+
+export const DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY: EvidenceLibrarySessionsQuery = {
+  page: 1,
+  page_size: 20,
+  sort_key: 'time',
+  sort_direction: 'desc',
+};
+
 export interface EvidenceLibrarySessionsResponse {
   sessions: EvidenceLibrarySession[];
+  total: number;
+  filtered_total: number;
+  page: number;
+  page_size: 20 | 50;
+  total_pages: number;
+  facets: Record<
+    'result' | 'scenarioCount' | 'mode' | 'scenario' | 'source' | 'worktree',
+    EvidenceLibraryFacetOption[]
+  >;
 }
 
 export interface EvidenceLibraryScanResult {
@@ -503,8 +542,8 @@ export const silApi = createApi({
       }),
     }),
 
-    getEvidenceLibrarySessions: builder.query<EvidenceLibrarySessionsResponse, void>({
-      query: () => '/evidence-library/sessions',
+    getEvidenceLibrarySessions: builder.query<EvidenceLibrarySessionsResponse, EvidenceLibrarySessionsQuery>({
+      query: (params) => ({ url: '/evidence-library/sessions', params }),
       providesTags: ['EvidenceLibrary'],
     }),
 
@@ -539,28 +578,30 @@ export const silApi = createApi({
         }
 
         const runningListQuery = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
         );
         if (runningListQuery) {
           runningListQuery.abort();
           await runningListQuery;
         }
 
-        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY, (draft) => {
           draft.sessions = draft.sessions.filter((session) => session.evidence_id !== evidenceId);
         }));
         dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
         const refresh = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
         );
         if (refresh) await refresh;
 
-        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select()(getState());
+        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select(
+          DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
+        )(getState());
         if (refreshed.isError && refreshed.data) {
           // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
           await dispatch(silApi.util.upsertQueryData(
             'getEvidenceLibrarySessions',
-            undefined,
+            DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
             refreshed.data,
           ));
         }
@@ -592,28 +633,30 @@ export const silApi = createApi({
             .map((item) => item.evidence_id),
         );
         const runningListQuery = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
         );
         if (runningListQuery) {
           runningListQuery.abort();
           await runningListQuery;
         }
 
-        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', undefined, (draft) => {
+        dispatch(silApi.util.updateQueryData('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY, (draft) => {
           draft.sessions = draft.sessions.filter((session) => !deletedIds.has(session.evidence_id));
         }));
         dispatch(silApi.util.invalidateTags(['EvidenceLibrary']));
         const refresh = dispatch(
-          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', undefined),
+          silApi.util.getRunningQueryThunk('getEvidenceLibrarySessions', DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY),
         );
         if (refresh) await refresh;
 
-        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select()(getState());
+        const refreshed = silApi.endpoints.getEvidenceLibrarySessions.select(
+          DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
+        )(getState());
         if (refreshed.isError && refreshed.data) {
           // RTK hooks otherwise expose their last fulfilled value instead of the patched cache.
           await dispatch(silApi.util.upsertQueryData(
             'getEvidenceLibrarySessions',
-            undefined,
+            DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
             refreshed.data,
           ));
         }
@@ -810,7 +853,7 @@ export const {
   useChangeLifecycleRateMutation,
   useStartEvidenceSessionMutation,
   useFinalizeEvidenceSessionMutation,
-  useGetEvidenceLibrarySessionsQuery,
+  useGetEvidenceLibrarySessionsQuery: useGetEvidenceLibrarySessionsQueryGenerated,
   useRescanEvidenceLibraryMutation,
   useLazyGetEvidenceLibraryRescanStatusQuery,
   useDeleteEvidenceLibrarySessionMutation,
@@ -850,3 +893,7 @@ export const {
   useRemoveEncounterMutation,
   useClearEncountersMutation,
 } = silApi;
+
+export const useGetEvidenceLibrarySessionsQuery = (
+  query: EvidenceLibrarySessionsQuery = DEFAULT_EVIDENCE_LIBRARY_SESSIONS_QUERY,
+) => useGetEvidenceLibrarySessionsQueryGenerated(query);

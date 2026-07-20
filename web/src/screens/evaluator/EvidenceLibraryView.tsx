@@ -19,23 +19,24 @@ import {
   useRescanEvidenceLibraryMutation,
   type EvidenceLibraryBatchDeleteResult,
   type EvidenceLibraryDeleteResult,
+  type EvidenceLibraryOutcome,
   type EvidenceLibraryScanResult,
   type EvidenceLibrarySession,
+  type EvidenceLibrarySessionsQuery,
+  type EvidenceLibrarySortKey,
 } from '../../api/silApi';
 
 interface EvidenceLibraryViewProps {
   onOpen: (evidenceId: string) => void;
 }
 
-type SortKey = 'time' | 'result' | 'scenarioCount' | 'mode' | 'scenario' | 'source' | 'worktree';
+type SortKey = EvidenceLibrarySortKey;
 type SortDirection = 'asc' | 'desc';
-type OutcomeCategory = 'passed' | 'failed' | 'unknown';
+type OutcomeCategory = EvidenceLibraryOutcome;
 
 interface SessionRow {
   raw: EvidenceLibrarySession;
   time: string;
-  timeValue: number;
-  result: string;
   resultDisplay: string;
   outcome: OutcomeCategory;
   scenarioCount: number;
@@ -199,12 +200,6 @@ const outcomeCategory = (session: EvidenceLibrarySession): OutcomeCategory => {
   return 'unknown';
 };
 
-const outcomeLabel = (outcome: OutcomeCategory) => {
-  if (outcome === 'passed') return '通过';
-  if (outcome === 'failed') return '不通过';
-  return '-';
-};
-
 const snapshotSession = (session: EvidenceLibrarySession): SelectedSessionSnapshot => ({
   evidenceId: session.evidence_id,
   outcome: outcomeCategory(session),
@@ -216,8 +211,6 @@ const toRow = (session: EvidenceLibrarySession): SessionRow => {
   return {
     raw: session,
     time: displayRunTime(session.created_at),
-    timeValue: session.created_at ? Date.parse(session.created_at) || 0 : 0,
-    result: outcomeLabel(outcome),
     resultDisplay: displayResult(session),
     outcome,
     scenarioCount: scenarioCount(session),
@@ -226,39 +219,6 @@ const toRow = (session: EvidenceLibrarySession): SessionRow => {
     source: displaySource(session),
     worktree: displayWorktree(session),
   };
-};
-
-const compareRows = (a: SessionRow, b: SessionRow, key: SortKey) => {
-  if (key === 'time') return a.timeValue - b.timeValue;
-  if (key === 'scenarioCount') return a.scenarioCount - b.scenarioCount;
-  return String(a[key]).localeCompare(String(b[key]), 'zh-Hans-CN', { numeric: true });
-};
-
-const uniqueValues = (rows: SessionRow[], key: SortKey) => {
-  const values = Array.from(new Set(rows.map((row) => String(row[key])).filter(Boolean)));
-  if (key === 'scenarioCount') return values.sort((a, b) => Number(a) - Number(b));
-  return values.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }));
-};
-
-const matchesSearch = (row: SessionRow, searchText: string) => {
-  const query = searchText.trim().toLocaleLowerCase();
-  if (!query) return true;
-  const values = [
-    row.raw.evidence_id,
-    row.raw.session_id,
-    row.scenario,
-    ...(row.raw.scenario_ids ?? []),
-    row.source,
-    row.raw.source,
-    row.raw.suite,
-    row.mode,
-    row.worktree,
-    row.raw.worktree_name,
-    row.raw.branch,
-    row.result,
-    row.resultDisplay,
-  ];
-  return values.some((value) => String(value ?? '').toLocaleLowerCase().includes(query));
 };
 
 const cellStyle = {
@@ -334,19 +294,38 @@ const actionButtonStyle = {
 } as const;
 
 export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
-  const { data, isLoading, refetch: refetchSessions } = useGetEvidenceLibrarySessionsQuery();
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'time', direction: 'desc' });
+  const [pageSize, setPageSize] = useState<20 | 50>(20);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
+  const [openFilterKey, setOpenFilterKey] = useState<SortKey | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const sessionsQuery = useMemo<EvidenceLibrarySessionsQuery>(() => ({
+    page,
+    page_size: pageSize,
+    search: debouncedSearch || undefined,
+    sort_key: sort.key,
+    sort_direction: sort.direction,
+    result: filters.result as EvidenceLibraryOutcome | undefined,
+    scenario_count: filters.scenarioCount ? Number(filters.scenarioCount) : undefined,
+    mode: filters.mode || undefined,
+    scenario: filters.scenario || undefined,
+    source: filters.source || undefined,
+    worktree: filters.worktree || undefined,
+  }), [debouncedSearch, filters, page, pageSize, sort]);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    refetch: refetchSessions,
+  } = useGetEvidenceLibrarySessionsQuery(sessionsQuery);
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
   const [getRescanStatus] = useLazyGetEvidenceLibraryRescanStatusQuery();
   const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
   const [batchDeleteSessions, batchDeleteState] = useBatchDeleteEvidenceLibrarySessionsMutation();
   const sessions = data?.sessions ?? [];
-  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'time', direction: 'desc' });
-  const [pageSize, setPageSize] = useState<20 | 50>(20);
-  const [page, setPage] = useState(0);
-  const [filters, setFilters] = useState<Partial<Record<SortKey, string>>>({});
-  const [openFilterKey, setOpenFilterKey] = useState<SortKey | null>(null);
-  const [searchText, setSearchText] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
   const [selectedSessionSnapshots, setSelectedSessionSnapshots] = useState<Map<string, SelectedSessionSnapshot>>(
     () => new Map(),
   );
@@ -395,24 +374,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const scanMountedRef = useRef(true);
   const scanPollTimerRef = useRef<number | null>(null);
 
-  const rows = useMemo(() => sessions.map(toRow), [sessions]);
-  const filteredRows = useMemo(() => {
-    const activeFilters = Object.entries(filters).filter(([, value]) => value);
-    return rows.filter((row) =>
-      matchesSearch(row, searchText)
-      && activeFilters.every(([key, value]) => String(row[key as SortKey]) === value),
-    );
-  }, [filters, rows, searchText]);
-  const sortedRows = useMemo(() => {
-    return [...filteredRows].sort((a, b) => {
-      const result = compareRows(a, b, sort.key);
-      return sort.direction === 'asc' ? result : -result;
-    });
-  }, [filteredRows, sort]);
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const safePage = Math.min(page, totalPages - 1);
-  const visibleRows = sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize);
-  const selectableRows = sortedRows.filter((row) => row.raw.deletion_allowed && row.raw.deletion_target);
+  const visibleRows = useMemo(() => sessions.map(toRow), [sessions]);
+  const totalPages = data?.total_pages ?? 1;
+  const displayedPage = data?.page ?? page;
   const visibleSelectableRows = visibleRows.filter(
     (row) => row.raw.deletion_allowed && row.raw.deletion_target,
   );
@@ -435,8 +399,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     || batchDeleteNeedsRescan
     || cleanupStorageUnavailable;
   const selectionDisabled = destructiveActionsDisabled;
-  const allFilteredSelected = selectableRows.length > 0
-    && selectableRows.every((row) => selectedEvidenceIds.has(row.raw.evidence_id));
   const batchDeleteSummary = useMemo(() => {
     const summary = { passed: 0, failed: 0, unknown: 0, worktrees: 0 };
     if (!pendingBatchDelete) return summary;
@@ -461,6 +423,18 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         : []
     : [];
   const currentOverview = overviewPngs[Math.min(overviewIndex, Math.max(overviewPngs.length - 1, 0))];
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchText.trim());
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
+
+  useEffect(() => {
+    if (!isFetching && data && data.page !== page) setPage(data.page);
+  }, [data, isFetching, page]);
 
   const recordPendingCleanup = useCallback((results: EvidenceLibraryDeleteResult[]) => {
     const next = new Map(pendingCleanupByPathRef.current);
@@ -762,13 +736,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     });
   };
 
-  const selectAllFiltered = () => {
-    if (selectionDisabled) return;
-    setSelectedSessionSnapshots(new Map(
-      selectableRows.map((row) => [row.raw.evidence_id, snapshotSession(row.raw)]),
-    ));
-  };
-
   const trapDialogFocus = (
     event: ReactKeyboardEvent<HTMLDivElement>,
     dialogRef: { current: HTMLDivElement | null },
@@ -886,18 +853,20 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const setSortDirection = (key: SortKey, direction: SortDirection) => {
     clearSelection();
     setSort({ key, direction });
-    setPage(0);
+    setPage(1);
   };
 
   const setFilter = (key: SortKey, value: string) => {
     clearSelection();
     setFilters((current) => ({ ...current, [key]: value }));
-    setPage(0);
+    setPage(1);
   };
 
   const popoverFilter = (key: SortKey, label: string) => {
     const open = openFilterKey === key;
     const value = filters[key] ?? '';
+    const options = key === 'time' ? [] : data?.facets[key] ?? [];
+    const valueLabel = options.find((option) => option.value === value)?.label ?? value;
     return (
       <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
         <button
@@ -940,7 +909,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               pointerEvents: 'none',
             }}
           >
-            {value}
+            {valueLabel}
           </span>
         )}
         {open && (
@@ -962,14 +931,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               boxShadow: '0 6px 16px rgba(0, 0, 0, 0.28)',
             }}
           >
-            {['', ...uniqueValues(rows, key)].map((option) => (
+            {[{ value: '', label: '全部', count: data?.total ?? 0 }, ...options].map((option) => (
               <button
-                key={option || 'all'}
+                key={option.value || 'all'}
                 type="button"
                 role="menuitem"
                 disabled={deleteActionsDisabled}
                 onClick={() => {
-                  setFilter(key, option);
+                  setFilter(key, option.value);
                   const trigger = filterTriggerRefs.current[key];
                   flushSync(() => setOpenFilterKey(null));
                   trigger?.focus();
@@ -981,15 +950,15 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   padding: '0 7px',
                   border: 0,
                   borderRadius: 3,
-                  background: option === value ? 'rgba(69, 211, 207, 0.12)' : 'transparent',
-                  color: option === value ? 'var(--c-phos)' : 'var(--txt-1)',
+                  background: option.value === value ? 'rgba(69, 211, 207, 0.12)' : 'transparent',
+                  color: option.value === value ? 'var(--c-phos)' : 'var(--txt-1)',
                   fontFamily: 'var(--f-mono)',
                   fontSize: 10,
                   textAlign: 'left',
                   cursor: 'pointer',
                 }}
               >
-                {option || '全部'}
+                {option.label}
               </button>
             ))}
           </div>
@@ -1081,8 +1050,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   仿真数据库
                 </h1>
                 <div style={{ display: 'flex', gap: 12, color: 'var(--txt-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                  <span>记录数: {sessions.length}</span>
-                  <span>显示: {sortedRows.length}</span>
+                  <span>记录数: {data?.total ?? 0}</span>
+                  <span>显示: {data?.filtered_total ?? 0}</span>
                 </div>
               </div>
               <label style={{
@@ -1105,7 +1074,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   onChange={(event) => {
                     clearSelection();
                     setSearchText(event.target.value);
-                    setPage(0);
                   }}
                   onFocus={() => setSearchFocused(true)}
                   onBlur={() => setSearchFocused(false)}
@@ -1122,23 +1090,6 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               {selectedSessions.length > 0 && (
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: 'var(--txt-2)', fontSize: 11, whiteSpace: 'nowrap' }}>
                   <span>已选择 {selectedSessions.length} 条</span>
-                  {selectableRows.length > 0 && !allFilteredSelected && (
-                    <button
-                      type="button"
-                      onClick={selectAllFiltered}
-                      disabled={selectionDisabled}
-                      style={{
-                        ...actionButtonStyle,
-                        height: 26,
-                        border: '1px solid var(--line-2)',
-                        background: 'rgba(69, 211, 207, 0.06)',
-                        color: 'var(--c-phos)',
-                        cursor: selectionDisabled ? 'not-allowed' : 'pointer',
-                      }}
-                    >
-                      选择全部 {selectableRows.length} 条筛选结果
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={clearSelection}
@@ -1364,9 +1315,9 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                     {columnHeader('仿真结果', 'result', 120, true)}
                     {columnHeader('场景数量', 'scenarioCount', 150, true)}
                     {columnHeader('模式', 'mode', 125, true)}
-                    {columnHeader('仿真场景', 'scenario', 180)}
+                    {columnHeader('仿真场景', 'scenario', 180, true)}
                     {columnHeader('来源', 'source', 125, true)}
-                    {columnHeader('工作树', 'worktree', 170)}
+                    {columnHeader('工作树', 'worktree', 170, true)}
                     <th align="center" style={{ width: 240, padding: '8px 8px 7px', verticalAlign: 'middle', textAlign: 'center' }}>操作</th>
                   </tr>
                 </thead>
@@ -1387,13 +1338,13 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                       <td style={{ ...cellStyle, width: 42, padding: 0 }}>
                         <input
                           type="checkbox"
-                          aria-label={`选择第 ${safePage * pageSize + index + 1} 条 ${row.scenario}`}
+                          aria-label={`选择第 ${(displayedPage - 1) * pageSize + index + 1} 条 ${row.scenario}`}
                           disabled={selectionDisabled || !row.raw.deletion_allowed || !row.raw.deletion_target}
                           checked={selectedEvidenceIds.has(row.raw.evidence_id)}
                           onChange={() => toggleSelected(row.raw)}
                         />
                       </td>
-                      <td style={cellStyle}>{safePage * pageSize + index + 1}</td>
+                      <td style={cellStyle}>{(displayedPage - 1) * pageSize + index + 1}</td>
                       <td style={cellStyle} title={row.raw.created_at ?? ''}>{row.time}</td>
                       <td style={cellStyle}>
                         <span style={{
@@ -1519,16 +1470,16 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 onChange={(event) => {
                   clearSelection();
                   setPageSize(Number(event.target.value) as 20 | 50);
-                  setPage(0);
+                  setPage(1);
                 }}
                 style={{ ...filterStyle, width: 72, marginTop: 0 }}
               >
                 <option value={20}>20</option>
                 <option value={50}>50</option>
               </select>
-              <span>{safePage + 1} / {totalPages}</span>
-              <button type="button" aria-label="上一页" disabled={deleteActionsDisabled || safePage <= 0} onClick={() => setPage(safePage - 1)} style={headerButtonStyle}>‹</button>
-              <button type="button" aria-label="下一页" disabled={deleteActionsDisabled || safePage >= totalPages - 1} onClick={() => setPage(safePage + 1)} style={headerButtonStyle}>›</button>
+              <span>{displayedPage} / {totalPages}</span>
+              <button type="button" aria-label="上一页" disabled={deleteActionsDisabled || page <= 1} onClick={() => setPage(Math.max(1, page - 1))} style={headerButtonStyle}>‹</button>
+              <button type="button" aria-label="下一页" disabled={deleteActionsDisabled || page >= totalPages} onClick={() => setPage(Math.min(totalPages, page + 1))} style={headerButtonStyle}>›</button>
             </div>
           </>
         )}
