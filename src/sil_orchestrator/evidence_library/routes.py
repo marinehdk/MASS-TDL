@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from .service import (
+    EvidenceRescanManager,
     delete_evidence_session,
     delete_evidence_sessions,
     get_config_payload,
@@ -13,12 +14,12 @@ from .service import (
     get_overview_png_path,
     get_replay,
     list_sessions,
-    rescan_all,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 router = APIRouter(prefix="/api/v1/evidence-library", tags=["evidence-library"])
+_rescan_manager = EvidenceRescanManager()
 
 
 @router.get("/config")
@@ -32,9 +33,17 @@ async def get_roots():
     return {"roots": payload["roots"]}
 
 
-@router.post("/rescan")
+@router.post("/rescan", status_code=202)
 async def rescan(request: dict):
-    return rescan_all(repo_root=REPO_ROOT, force=bool(request.get("force", False)))
+    return _rescan_manager.start(
+        repo_root=REPO_ROOT,
+        force=bool(request.get("force", False)),
+    )
+
+
+@router.get("/rescan/status")
+async def rescan_status():
+    return _rescan_manager.status()
 
 
 @router.get("/sessions")

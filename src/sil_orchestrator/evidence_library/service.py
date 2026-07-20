@@ -8,9 +8,13 @@ import os
 import shutil
 import sqlite3
 import stat
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from .config import EvidenceLibraryConfig, EvidenceRootConfig, load_effective_config
 from .ingest import ingest_session, query_decision_frame, query_replay
@@ -1054,46 +1058,74 @@ def _rescan_all_locked(
     config: EvidenceLibraryConfig,
     repo_root: Path | None,
     force: bool,
+    progress_callback: Callable[..., None] | None = None,
 ) -> dict[str, Any]:
     ingested = 0
+    skipped = 0
+    processed = 0
     errors: list[dict[str, str]] = []
+    discovered_sessions = [
+        (root, session_dir)
+        for root in config.roots
+        if root.enabled
+        for session_dir in _session_dirs(root)
+    ]
+    if progress_callback is not None:
+        progress_callback(total=len(discovered_sessions))
     with closing(open_initialized(config)) as conn:
         recovery_errors, protected_ids, cleanup_pending = _recover_interrupted_deletions(
             conn, config, repo_root
         )
         errors.extend(recovery_errors)
-        for root in config.roots:
-            if not root.enabled:
-                continue
-            for session_dir in _session_dirs(root):
-                try:
-                    ingest_session(
-                        conn,
-                        root,
-                        session_dir,
-                        raw_trace_policy=config.effective_retention_policy,
-                        force=force,
-                    )
+        for root, session_dir in discovered_sessions:
+            try:
+                result = ingest_session(
+                    conn,
+                    root,
+                    session_dir,
+                    raw_trace_policy=config.effective_retention_policy,
+                    force=force,
+                )
+                if result.skipped:
+                    skipped += 1
+                else:
                     ingested += 1
-                except Exception as exc:  # pragma: no cover - defensive aggregation
-                    errors.append({"path": str(session_dir), "error": str(exc)})
+            except Exception as exc:  # pragma: no cover - defensive aggregation
+                errors.append({"path": str(session_dir), "error": str(exc)})
+            finally:
+                processed += 1
+                if progress_callback is not None:
+                    progress_callback(
+                        processed=processed,
+                        ingested=ingested,
+                        skipped=skipped,
+                        errors=list(errors),
+                    )
         pruned = _prune_missing_sessions(conn, protected_ids)
     return {
+        "processed": processed,
         "ingested": ingested,
+        "skipped": skipped,
         "pruned": pruned,
         "errors": errors,
         "cleanup_pending": cleanup_pending,
     }
 
 
-def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, Any]:
+def rescan_all(
+    repo_root: Path | None = None,
+    force: bool = False,
+    progress_callback: Callable[..., None] | None = None,
+) -> dict[str, Any]:
     config = load_effective_config(repo_root=repo_root)
     try:
         with _deletion_scan_coordination_lock(config, exclusive=True):
-            return _rescan_all_locked(config, repo_root, force)
+            return _rescan_all_locked(config, repo_root, force, progress_callback)
     except _DeletionLockConflict as exc:
         return {
+            "processed": 0,
             "ingested": 0,
+            "skipped": 0,
             "pruned": 0,
             "errors": [{
                 "path": str(_deletion_lock_dir_path(config)),
@@ -1101,6 +1133,107 @@ def rescan_all(repo_root: Path | None = None, force: bool = False) -> dict[str, 
             }],
             "cleanup_pending": [],
         }
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class EvidenceRescanManager:
+    _ACTIVE_STATES = {"queued", "running"}
+    _PROGRESS_FIELDS = {
+        "total",
+        "processed",
+        "ingested",
+        "skipped",
+        "pruned",
+        "errors",
+        "cleanup_pending",
+    }
+
+    def __init__(self, runner: Callable[..., dict[str, Any]] | None = None) -> None:
+        self._runner = runner or rescan_all
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="evidence-library-rescan",
+        )
+        self._lock = threading.Lock()
+        self._snapshot = self._new_snapshot()
+
+    @staticmethod
+    def _new_snapshot(*, job_id: str | None = None, force: bool = False) -> dict[str, Any]:
+        return {
+            "job_id": job_id,
+            "state": "idle" if job_id is None else "queued",
+            "force": force,
+            "total": 0,
+            "processed": 0,
+            "ingested": 0,
+            "skipped": 0,
+            "pruned": 0,
+            "errors": [],
+            "cleanup_pending": [],
+            "started_at": None,
+            "finished_at": None,
+        }
+
+    @staticmethod
+    def _copy_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+        copied = dict(snapshot)
+        copied["errors"] = [dict(item) for item in snapshot["errors"]]
+        copied["cleanup_pending"] = [dict(item) for item in snapshot["cleanup_pending"]]
+        return copied
+
+    def start(self, *, repo_root: Path | None, force: bool) -> dict[str, Any]:
+        with self._lock:
+            if self._snapshot["state"] in self._ACTIVE_STATES:
+                return self._copy_snapshot(self._snapshot)
+            job_id = uuid.uuid4().hex
+            self._snapshot = self._new_snapshot(job_id=job_id, force=force)
+            queued_snapshot = self._copy_snapshot(self._snapshot)
+            self._executor.submit(self._run, job_id, repo_root, force)
+            return queued_snapshot
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            return self._copy_snapshot(self._snapshot)
+
+    def _update_progress(self, job_id: str, **updates: Any) -> None:
+        with self._lock:
+            if self._snapshot["job_id"] != job_id:
+                return
+            for key, value in updates.items():
+                if key in self._PROGRESS_FIELDS:
+                    self._snapshot[key] = list(value) if key in {"errors", "cleanup_pending"} else value
+
+    def _run(self, job_id: str, repo_root: Path | None, force: bool) -> None:
+        with self._lock:
+            if self._snapshot["job_id"] != job_id:
+                return
+            self._snapshot["state"] = "running"
+            self._snapshot["started_at"] = _utc_now()
+        try:
+            result = self._runner(
+                repo_root=repo_root,
+                force=force,
+                progress_callback=lambda **updates: self._update_progress(job_id, **updates),
+            )
+        except Exception as exc:  # pragma: no cover - guarded by route tests
+            with self._lock:
+                if self._snapshot["job_id"] == job_id:
+                    self._snapshot["state"] = "failed"
+                    self._snapshot["errors"] = [{"path": "rescan", "error": str(exc)}]
+                    self._snapshot["finished_at"] = _utc_now()
+            return
+        with self._lock:
+            if self._snapshot["job_id"] != job_id:
+                return
+            for key in self._PROGRESS_FIELDS:
+                if key in result:
+                    value = result[key]
+                    self._snapshot[key] = list(value) if key in {"errors", "cleanup_pending"} else value
+            self._snapshot["state"] = "completed"
+            self._snapshot["finished_at"] = _utc_now()
 
 
 def ingest_frontend_session(session_dir: Path, repo_root: Path | None = None) -> str | None:

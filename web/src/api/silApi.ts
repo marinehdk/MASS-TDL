@@ -301,9 +301,18 @@ export interface EvidenceLibrarySessionsResponse {
 }
 
 export interface EvidenceLibraryScanResult {
+  job_id: string | null;
+  state: 'idle' | 'queued' | 'running' | 'completed' | 'failed';
+  force: boolean;
+  total: number;
+  processed: number;
   ingested: number;
+  skipped: number;
   pruned: number;
   errors: Array<{ path: string; error: string }>;
+  cleanup_pending: EvidenceLibraryDeleteResult[];
+  started_at: string | null;
+  finished_at: string | null;
 }
 
 export interface EvidenceLibraryDeleteResult {
@@ -505,7 +514,15 @@ export const silApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: (result) => (result ? ['EvidenceLibrary'] : []),
+      invalidatesTags: (result) => (
+        result && result.state !== 'queued' && result.state !== 'running'
+          ? ['EvidenceLibrary']
+          : []
+      ),
+    }),
+
+    getEvidenceLibraryRescanStatus: builder.query<EvidenceLibraryScanResult, void>({
+      query: () => '/evidence-library/rescan/status',
     }),
 
     deleteEvidenceLibrarySession: builder.mutation<EvidenceLibraryDeleteResult, string>({
@@ -795,6 +812,7 @@ export const {
   useFinalizeEvidenceSessionMutation,
   useGetEvidenceLibrarySessionsQuery,
   useRescanEvidenceLibraryMutation,
+  useLazyGetEvidenceLibraryRescanStatusQuery,
   useDeleteEvidenceLibrarySessionMutation,
   useBatchDeleteEvidenceLibrarySessionsMutation,
   useGetEvidenceReplayQuery,

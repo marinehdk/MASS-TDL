@@ -271,6 +271,44 @@ def test_ingest_session_builds_replay_and_gate_rows(tmp_path):
     assert gates[("G-ART", "artifact_consistency")] == "PASS"
 
 
+def test_ingest_session_skips_unchanged_ok_session_and_force_reingests(tmp_path):
+    root_path = tmp_path / "runs" / "trace_eval"
+    session = _write_fixture_session(root_path)
+    root = EvidenceRootConfig(
+        root_id="primary",
+        label="Primary",
+        source="background_probe",
+        path_glob=str(root_path),
+        trusted=True,
+    )
+    conn = _conn()
+
+    first = ingest_session(conn, root, session)
+    conn.execute(
+        "insert into events(evidence_id, session_id, scenario_id, sim_t, wall_t, module, "
+        "event_type, severity, payload_json, source_topic) values (?, ?, ?, 0, null, "
+        "'TEST', 'sentinel', 'info', '{}', 'test')",
+        (first.evidence_id, first.session_id, "colreg-rule14-ho"),
+    )
+    conn.commit()
+
+    skipped = ingest_session(conn, root, session, force=False)
+
+    assert skipped.skipped is True
+    assert conn.execute(
+        "select count(*) from events where evidence_id = ? and event_type = 'sentinel'",
+        (first.evidence_id,),
+    ).fetchone()[0] == 1
+
+    forced = ingest_session(conn, root, session, force=True)
+
+    assert forced.skipped is False
+    assert conn.execute(
+        "select count(*) from events where evidence_id = ? and event_type = 'sentinel'",
+        (first.evidence_id,),
+    ).fetchone()[0] == 0
+
+
 def test_ingest_session_supports_unified_run_folder(tmp_path):
     repo = tmp_path / "repo"
     session = _write_unified_fixture_run(repo)

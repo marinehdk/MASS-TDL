@@ -15,6 +15,7 @@ import {
   useBatchDeleteEvidenceLibrarySessionsMutation,
   useDeleteEvidenceLibrarySessionMutation,
   useGetEvidenceLibrarySessionsQuery,
+  useLazyGetEvidenceLibraryRescanStatusQuery,
   useRescanEvidenceLibraryMutation,
   type EvidenceLibraryBatchDeleteResult,
   type EvidenceLibraryDeleteResult,
@@ -335,6 +336,7 @@ const actionButtonStyle = {
 export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const { data, isLoading, refetch: refetchSessions } = useGetEvidenceLibrarySessionsQuery();
   const [rescan, rescanState] = useRescanEvidenceLibraryMutation();
+  const [getRescanStatus] = useLazyGetEvidenceLibraryRescanStatusQuery();
   const [deleteSession, deleteState] = useDeleteEvidenceLibrarySessionMutation();
   const [batchDeleteSessions, batchDeleteState] = useBatchDeleteEvidenceLibrarySessionsMutation();
   const sessions = data?.sessions ?? [];
@@ -390,6 +392,8 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const cleanupStorageReadyRef = useRef(false);
   const cleanupStorageActiveRef = useRef(true);
   const cleanupStorageAttemptRef = useRef<Promise<boolean> | null>(null);
+  const scanMountedRef = useRef(true);
+  const scanPollTimerRef = useRef<number | null>(null);
 
   const rows = useMemo(() => sessions.map(toRow), [sessions]);
   const filteredRows = useMemo(() => {
@@ -421,7 +425,11 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const deleteActionsDisabled = deleteState.isLoading
     || batchDeleteState.isLoading
     || cleanupStorageOperationPending;
-  const scanInProgress = rescanState.isLoading || scanReconciliationPending;
+  const scanJobActive = scanResult?.state === 'queued' || scanResult?.state === 'running';
+  const scanInProgress = rescanState.isLoading || scanReconciliationPending || scanJobActive;
+  const scanProgressLabel = scanJobActive
+    ? (scanResult.total > 0 ? `扫描 ${scanResult.processed}/${scanResult.total}` : '扫描中')
+    : '扫描';
   const destructiveActionsDisabled = deleteActionsDisabled
     || scanInProgress
     || batchDeleteNeedsRescan
@@ -674,18 +682,46 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
     setSelectedSessionSnapshots(new Map());
   }, []);
 
+  const waitForScanPoll = useCallback(() => new Promise<void>((resolve) => {
+    scanPollTimerRef.current = window.setTimeout(() => {
+      scanPollTimerRef.current = null;
+      resolve();
+    }, 100);
+  }), []);
+
   const handleRescan = useCallback(async () => {
     clearSelection();
     setScanReconciliationPending(true);
     try {
-      const result = await rescan({ force: false }).unwrap() as EvidenceLibraryRecoveryScanResult;
+      let result = await rescan({ force: false }).unwrap() as EvidenceLibraryRecoveryScanResult;
       setScanFailed(false);
       setScanResult(result);
+      while (
+        scanMountedRef.current
+        && (result.state === 'queued' || result.state === 'running')
+      ) {
+        await waitForScanPoll();
+        if (!scanMountedRef.current) return;
+        result = await getRescanStatus().unwrap() as EvidenceLibraryRecoveryScanResult;
+        setScanResult(result);
+      }
+      if (!scanMountedRef.current) return;
       recordPendingCleanup(result.cleanup_pending ?? []);
+      if (result.state === 'failed') {
+        setScanFailed(true);
+        return;
+      }
       await refetchSessions().unwrap();
       if (result.errors.length === 0) setBatchDeleteNeedsRescan(false);
     } catch {
       setScanFailed(true);
+      setScanResult((current) => current && (
+        current.state === 'queued' || current.state === 'running'
+      ) ? {
+          ...current,
+          state: 'failed',
+          finished_at: new Date().toISOString(),
+        } : current);
     } finally {
       if (cleanupStorageUnavailable) await initializeCleanupStorage();
       setScanReconciliationPending(false);
@@ -693,10 +729,12 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   }, [
     cleanupStorageUnavailable,
     clearSelection,
+    getRescanStatus,
     initializeCleanupStorage,
     recordPendingCleanup,
     refetchSessions,
     rescan,
+    waitForScanPoll,
   ]);
 
   const toggleSelected = (session: EvidenceLibrarySession) => {
@@ -774,6 +812,17 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
   const handleBatchDeleteDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     trapDialogFocus(event, batchDeleteDialogRef, closeBatchDeleteDialog);
   };
+
+  useEffect(() => {
+    scanMountedRef.current = true;
+    return () => {
+      scanMountedRef.current = false;
+      if (scanPollTimerRef.current !== null) {
+        window.clearTimeout(scanPollTimerRef.current);
+        scanPollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (pendingDelete) deleteCancelButtonRef.current?.focus();
@@ -1006,7 +1055,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
         aria-hidden={pendingDelete || pendingBatchDelete ? true : undefined}
         style={{ flex: 1, padding: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}
       >
-        {isLoading ? (
+        {isLoading && !data ? (
           <div>Loading evidence</div>
         ) : (
           <>
@@ -1135,7 +1184,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
               }}>
                 <button
                   type="button"
-                  aria-label={scanInProgress ? '扫描中' : '扫描'}
+                  aria-label={scanProgressLabel}
                   title="扫描证据库"
                   onClick={handleRescan}
                   disabled={scanInProgress || deleteActionsDisabled}
@@ -1156,7 +1205,7 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                   }}
                 >
                   <LucideScanSearch size={14} aria-hidden="true" />
-                  {scanInProgress ? '扫描中' : '扫描'}
+                  {scanProgressLabel}
                 </button>
               </div>
             </div>
@@ -1270,7 +1319,14 @@ export function EvidenceLibraryView({ onOpen }: EvidenceLibraryViewProps) {
                 }}
               >
                 <strong>
-                  {scanResult.errors.length > 0 ? '扫描部分完成' : '扫描完成'}：写入 {scanResult.ingested}，清理 {scanResult.pruned}，错误 {scanResult.errors.length}。
+                  {scanJobActive
+                    ? `扫描中：处理 ${scanResult.processed}/${scanResult.total}`
+                    : scanResult.state === 'failed'
+                      ? '扫描失败'
+                      : scanResult.errors.length > 0
+                        ? '扫描部分完成'
+                        : '扫描完成'}
+                  {!scanJobActive && <>：写入 {scanResult.ingested}，跳过 {scanResult.skipped ?? 0}，清理 {scanResult.pruned}，错误 {scanResult.errors.length}。</>}
                 </strong>
                 {scanResult.errors.length > 0 && (
                   <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>

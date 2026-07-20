@@ -20,6 +20,7 @@ class IngestResult:
     scenario_count: int
     trajectory_count: int
     event_count: int
+    skipped: bool = False
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -526,6 +527,24 @@ def ingest_session(conn: sqlite3.Connection, root: EvidenceRootConfig, session_p
     evidence_id = compute_evidence_id(root.root_id, session_path)
     scenarios = manifest.get("scenarios") or []
     latest_mtime = _latest_mtime(session_path, run_meta_path)
+    existing = conn.execute(
+        "select latest_mtime, ingest_status from sessions where evidence_id = ?",
+        (evidence_id,),
+    ).fetchone()
+    if (
+        not force
+        and existing is not None
+        and existing[0] == latest_mtime
+        and existing[1] == "ok"
+    ):
+        return IngestResult(
+            evidence_id=evidence_id,
+            session_id=session_id,
+            scenario_count=len(scenarios),
+            trajectory_count=0,
+            event_count=0,
+            skipped=True,
+        )
     summary_path = session_path / "summary.json"
     batch_path = session_path / "batch_summary.json"
     batch = _read_json(summary_path) if summary_path.exists() else _read_json(batch_path) if batch_path.exists() else {}

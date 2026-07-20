@@ -10,6 +10,8 @@ const apiMocks = vi.hoisted(() => ({
   rescan: vi.fn(),
   rescanUnwrap: vi.fn(),
   rescanIsLoading: false,
+  getRescanStatus: vi.fn(),
+  getRescanStatusUnwrap: vi.fn(),
   refetch: vi.fn(),
   refetchUnwrap: vi.fn(),
   deleteSession: vi.fn(),
@@ -33,6 +35,7 @@ vi.mock('../../../api/silApi', () => ({
     refetch: apiMocks.refetch,
   }),
   useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
+  useLazyGetEvidenceLibraryRescanStatusQuery: () => [apiMocks.getRescanStatus],
   useDeleteEvidenceLibrarySessionMutation: () => [
     apiMocks.deleteSession,
     { isLoading: apiMocks.deleteIsLoading, error: null },
@@ -143,6 +146,8 @@ beforeEach(() => {
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
   apiMocks.rescanIsLoading = false;
+  apiMocks.getRescanStatus.mockReset();
+  apiMocks.getRescanStatusUnwrap.mockReset();
   apiMocks.refetch.mockReset();
   apiMocks.refetchUnwrap.mockReset();
   apiMocks.deleteSession.mockReset();
@@ -161,6 +166,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', apiMocks.configFetch);
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
+  apiMocks.getRescanStatus.mockReturnValue({ unwrap: apiMocks.getRescanStatusUnwrap });
   apiMocks.refetchUnwrap.mockResolvedValue(undefined);
   apiMocks.refetch.mockReturnValue({ unwrap: apiMocks.refetchUnwrap });
   apiMocks.deleteUnwrap.mockResolvedValue({
@@ -253,6 +259,127 @@ describe('EvidenceLibraryView', () => {
     await waitFor(() => expect(apiMocks.rescanUnwrap).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
     expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains loaded rows, polls progress, and refetches once after completion', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-progress',
+      state: 'queued',
+      force: false,
+      total: 2,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap
+      .mockResolvedValueOnce({
+        job_id: 'job-progress',
+        state: 'running',
+        force: false,
+        total: 2,
+        processed: 1,
+        ingested: 1,
+        skipped: 0,
+        pruned: 0,
+        errors: [],
+        cleanup_pending: [],
+        started_at: '2026-07-20T00:00:00Z',
+        finished_at: null,
+      })
+      .mockResolvedValueOnce({
+        job_id: 'job-progress',
+        state: 'completed',
+        force: false,
+        total: 2,
+        processed: 2,
+        ingested: 1,
+        skipped: 1,
+        pruned: 0,
+        errors: [],
+        cleanup_pending: [],
+        started_at: '2026-07-20T00:00:00Z',
+        finished_at: '2026-07-20T00:00:01Z',
+      });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: '扫描 1/2' })).toBeDisabled();
+    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
+    expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops polling and exposes worker failure without refetching sessions', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-failed',
+      state: 'queued',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap.mockResolvedValueOnce({
+      job_id: 'job-failed',
+      state: 'failed',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [{ path: 'rescan', error: 'scan exploded' }],
+      cleanup_pending: [],
+      started_at: '2026-07-20T00:00:00Z',
+      finished_at: '2026-07-20T00:00:01Z',
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    await waitFor(() => expect(screen.getByText(/scan exploded/)).toBeInTheDocument());
+    expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1);
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('stops polling and re-enables scanning after a status request error', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-status-error',
+      state: 'queued',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap.mockRejectedValueOnce(new Error('status unavailable'));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '扫描' })).toBeEnabled());
+    expect(screen.getAllByText(/扫描失败/).length).toBeGreaterThan(0);
+    expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1);
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
   });
 
   it('shows every HTTP-200 scan error while retaining successful result counts', async () => {
