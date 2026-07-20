@@ -1,292 +1,105 @@
-## project scope and architecture
+# MASS-L3 project agent contract
 
-This repository is the L3 Tactical Decision Layer for the MASS stack. Treat it as the tactical layer in the five-layer chain:
-`L1 Mission[hrs~days] -> L2 Voyage[min~hrs] -> L3 Tactical[sec~min] -> L4 Guidance[100ms~1s] -> L5 Control[10ms~100ms]`.
+Global workflow, research, confidence, communication, and generic tool rules come from `~/.codex/AGENTS.md`. This file contains only MASS-L3 project deltas.
 
-L3 consumes L2 waypoints and fusion/NavFilter state, outputs `psi_cmd` / `u_cmd` / `ROT` toward L4, and accepts X-axis deterministic checker vetoes. `docs/Init From Zulip/` and `docs/Init From SINAN/` are interface references only; keep them read-only.
+## Project scope and invariants
 
-Module map:
-- M1 ODD/Envelope: TDL scheduler and only safety-context authority, 0.1-1 Hz.
-- M2 World Model: authoritative world view plus COLREG geometry pre-classification, 10-50 Hz.
-- M3 Mission Manager: voyage plan, ETA, and replanning triggers.
-- M4 Behavior Arbiter: behavior dictionary and IvP-style multi-objective arbitration, 1-4 Hz.
-- M5 Tactical Planner: Mid-MPC / BC-MPC route generation toward L4.
-- M6 COLREGs Reasoner: ODD-aware rule reasoning.
-- M7 Safety Supervisor: independent doer-checker path.
-- M8 HMI/Transparency: only ROC/captain-facing transparency surface.
+MASS-L3 is the Tactical Decision Layer in `L1 Mission -> L2 Voyage -> L3 Tactical -> L4 Guidance -> L5 Control`. Modules: M1 ODD authority; M2 world model/COLREG geometry; M3 mission tracking; M4 behavior arbitration; M5 Mid-MPC/BC-MPC; M6 COLREG reasoning; M7 independent checker/MRM; M8 operator transparency.
 
-ROS2 DDS messages must preserve `stamp`, `schema_version`, `confidence` in `[0,1]`, and `rationale` when those fields are part of the interface contract.
+- L3 consumes L2 route/speed plus fused state; outputs route, heading, speed, and ROT intent toward L4; accepts deterministic checker vetoes.
+- ODD is the only safety-context and behavior-switching authority.
+- M7 checker/MRC remains simpler and implementation-independent from the doer.
+- Decision-core code stays vessel-agnostic; no vessel-name or scenario-ID branches.
+- Preserve CMM-style `current_state()`, `rationale()`, and `forecast(delta_t)+uncertainty()` semantics where applicable.
+- Preserve contracted ROS2 `stamp`, `schema_version`, `confidence` in `[0,1]`, and `rationale` fields.
+- Treat CCS auditability, IMO MASS ODD visibility, IEC 61508 SIL2 dependencies, ISO 21448 degradation, and TMR >= 60 s as first-class constraints.
+- Keep `docs/Init From Zulip/` and `docs/Init From SINAN/` read-only.
 
-## architecture invariants
+## COLREGs full-chain debugging
 
-- ODD is the only authority for safety context and behavior switching. Do not let modules keep independent "is safe" state that changes behavior.
-- M7 doer-checker must stay simpler than the doer, with implementation independence. Avoid shared code, data structures, or complex dependencies on the MRC/checker path.
-- Each module should expose or preserve CMM-style `current_state()`, `rationale()`, and `forecast(delta_t)+uncertainty()` semantics where applicable.
-- Decision-core code must stay vessel-agnostic. Do not add `if vessel == ...` style FCB/product-specific constants to the architecture layer.
-- Certification-facing constraints are first-class: CCS i-Ship auditability, IMO MASS Code ODD visibility, IEC 61508 SIL2 for M1/M7/MRC dependencies, ISO 21448 SOTIF for degraded perception, and TMR >= 60 s.
+Diagnose avoidance defects across the encounter lifecycle before changing behavior:
+`L2 route/speed -> M2 world/CPA/geometry -> M6 rule/role/direction/release -> M4 behavior FSM -> M5 trajectory/status -> L4 execution -> M7 veto/MRM -> M8 evidence`.
 
-## COLREGs full-chain debugging rule
+- Classify the first broken stage contract from trace evidence; do not tune one scenario green.
+- Never add mocks, skips, forced PASS paths, vessel-specific branches, or scenario-ID conditionals.
+- Explain upstream input, internal state, output message, and downstream response coherently before accepting a fix.
+- Treat M5 `NORMAL`/`DEGRADED` oscillation as unresolved until solver health, fallback/recovery, behavior mode, route hash, waypoint validity, and L4 takeover are separated.
+- Check L2 republish, M2 identity, M6 re-arm/release, M4 latch, M5 fallback, L4 override, and M7 veto together.
+- Recovery requires past-and-clear, no crossing ahead, ample time, CPA/risk floor, and stable route return together.
 
-COLREGs avoidance defects must be debugged as an end-to-end encounter lifecycle, not as one scenario/one patch tuning. Before changing behavior logic, collect or add evidence for every active stage in the chain:
-`L2 route/speed -> M2 world/CPA/geometry -> M6 rule/role/direction/release -> M4 behavior FSM -> M5 trajectory/status -> L4 guidance/execution -> M7 veto/MRM -> M8 evidence`.
+## Design authority
 
-Mandatory discipline:
-- Do not tune thresholds, scenario geometry, scorer gates, or one module output just to turn a single probe green.
-- Do not add mocks, skips, forced PASS paths, vessel-specific branches, or scenario-id conditionals.
-- For each failed scenario, first classify which stage contract broke, using trace evidence. A fix is acceptable only when it explains why upstream inputs, internal state, output message, and downstream consumer behavior are all coherent.
-- M5 `NORMAL`/`DEGRADED` oscillation is a first-class chain fault. Treat it as unresolved until the trace separates solver health, fallback/recovery mode, behavior mode, route hash stability, valid-waypoint state, and L4/lifecycle takeover state.
-- L2 route or speed-profile republishing, M2 target identity churn, M6 encounter FSM re-arm, M4 behavior latch churn, M5 solver/fallback flips, L4 route-following override, and M7 veto must be checked together before any code change.
-- Recovery and route return must preserve COLREGs semantics: past-and-clear, no crossing ahead, ample time, CPA/risk floor, and stable return-to-route all have to hold together.
+- D-task reading order: `docs/Design/00-master-plan.md` -> Phase overview -> D spec -> relevant `M{n}-progress.md`.
+- Architecture authority: `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`; also use `docs/Design/SIL/v1.0-unified/` and `docs/Design/Cross-Team Alignment/RFC-decisions.md`.
+- Avoid archives and deprecated detailed-design trees unless performing explicit historical comparison.
+- A design change needs traceable claims, complete interfaces/frequencies/CMM fields, degradation paths, and applicable certification mapping.
+- Edit only the owning module chapter and interface table; report cross-module issues instead of silently editing them.
+- Use allocated `[Rx]` references; no bare URLs in architecture documents.
+- Keep `docs/Doc From Claude/` append-only; do not hand-edit `.nlm/` or `.claude/settings.local.json`.
+- D-task flow: spec -> plan -> evidence -> report -> `M{n}-progress.md`; use numeric dotted IDs.
 
-## design and documentation rules
+## Git, worktree, and A4000 contract
 
-- Before a D-task, read in order: `docs/Design/00-master-plan.md`, the relevant `docs/Design/Phase N/00-overview.md`, the relevant D spec, then the relevant `TDL-Kernel/M{n}-*/M{n}-progress.md`.
-- Authoritative design entry points are `docs/Design/00-master-plan.md`, `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md`, `docs/Design/SIL/v1.0-unified/`, and `docs/Design/Cross-Team Alignment/RFC-decisions.md`.
-- For architecture questions, use `docs/Design/Architecture Design/MASS_ADAS_L3_TDL_架构设计报告.md` as the main architecture file. Use its table of contents plus sections 1-4 for the skeleton, and module sections M1-M8 for details.
-- Do not treat archived docs as current truth. Avoid `*/archive/`, `docs/Design/Phase 0/Archive/`, `Archive/Old Modules/`, and deprecated `Detailed Design/` unless explicitly doing historical comparison.
-- A design change is complete only when claims are traceable to source sections, `[Rx]` references, repo evidence, or NLM sources; interfaces list in/out messages, frequencies, confidence/rationale fields; degradation paths cover `DEGRADED`, `CRITICAL`, and `OUT-of-ODD`; CCS mapping and confidence labels are updated where relevant.
-- When editing one module's docs, edit only that module's chapter and interface contract table. If another module has a problem, report it instead of silently editing it.
-- References must use allocated `[Rx]` entries in the document bibliography. Do not paste bare URLs into architecture docs.
-- Keep `docs/Doc From Claude/` append-only. Do not hand-edit `.nlm/` or `.claude/settings.local.json`; tool-managed files stay tool-managed.
-- New D-task document flow is spec -> plan -> evidence -> report -> update `M{n}-progress.md`. Use numeric dotted IDs such as `D1.3.1`.
+- GitLab `origin/l3-tdl` is integration source of truth; no GitHub remote is assumed.
+- Never commit directly on `l3-tdl`. One concurrent task owns one short-lived branch, `.worktrees/<task>` checkout, and task-specific Compose project.
+- Primary checkout is integration surface; feature development stays in task worktrees. Do not let threads share a branch/worktree without explicit handoff.
+- `mass-l3-sil` owns stable demo runtime and normal demo ports. Feature experiments must not reuse, stop, or rebuild it.
+- Exact environment and Compose values come from `scripts/a4000-env.sh` and active Compose files.
+- Required promotion order: targeted tests -> local A4000 acceptance -> required adapter probe -> integrate -> push `origin/l3-tdl`.
+- Canonical gate: `source scripts/a4000-env.sh && npm run sys:start && ./scripts/a4000-acceptance.sh`.
+- Never use acceptance `--sync`, destructive reset, repository-wide overwrite, or unscoped Docker cleanup without explicit authorization.
+- Full runtime, port, evidence, cleanup, and cache rules: `docs/Operations/a4000-runtime.md`.
 
-## branch / remote conventions
+## Project memory and CodeGraph delta
 
-- 本仓库的 remote 是 GitLab (`origin` = `git@gitlab.sangoai.com:mass_devgroup/01-dynamics/01-simulation.git`)。本机 A4000 上没有独立的 GitHub remote；不要假设存在 `github` remote 或把分支 push 到 GitHub。
-- 开发与集成的 source of truth 是 `l3-tdl` 分支（本地 + `origin/l3-tdl`）。远程仓库同时存在 `main` 与 `master`，但当前工作主线是 `l3-tdl`，不要把 GitLab 主线误判为 `main`/`master`。
-- 任务分支命名沿用 `codex/<task>` / `feat/<task>` / `fix/<task>`；集成完成后合并回 `l3-tdl` 并 `git push origin l3-tdl`。
-- Do not commit directly on `l3-tdl`; use task branches/worktrees and merge only after the acceptance gate in the next section passes.
-- 同步规则（本机即 A4000，无 ssh/rsync 跨机）：只 push 到 `origin/l3-tdl`。涉及外部模块联调时，再单独处理 `/home/mass/...` 路径（见下）。
-
-## parallel Codex development workflow
-
-Hard rule: each concurrent Codex development thread works in its own local branch/worktree. The long-lived `l3-tdl` worktree is the integration surface for tested branches, not a shared development area.
-
-本机就是 A4000（`tigerwang-System-Product-Name`，Ubuntu 22.04 x86_64，账户 `marine.huang`）。开发、容器构建、仿真验收都在这一台机器上完成，没有跨机 ssh/rsync。
-
-Recommended layout:
-- Keep `/home/marine.huang/Code/mass-l3/.worktrees/l3-tdl` on branch `l3-tdl` as the clean integration/runtime surface. The primary checkout `/home/marine.huang/Code/mass-l3` may be on another task branch; never assume it is the integration checkout.
-- Put parallel work under project-local `.worktrees/`, for example:
-  ```bash
-  git worktree add .worktrees/backend-colregs -b codex/backend-colregs l3-tdl
-  git worktree add .worktrees/frontend-map -b codex/frontend-map l3-tdl
-  ```
-- Use one short-lived branch per task or subsystem. Example split: backend COLREGs/adapter logic, frontend SIL/HMI display, scenario/gate tooling.
-- Do not let two Codex threads edit the same worktree or branch unless the user explicitly asks for a handoff.
-
-Main runtime container rule:
-- Treat `/home/marine.huang/Code/mass-l3/.worktrees/l3-tdl` as the stable demo/verification checkout. Run persistent demo containers from this clean worktree, not from a feature checkout.
-- The default demo stack uses `COMPOSE_PROJECT_NAME=mass-l3-sil` and owns the normal demo ports: orchestrator `18000`, Foxglove `18765`, Martin tiles `3000`, and Vite `5173`. Feature work must not take these ports from a running demo stack.
-- Feature or bugfix container work must use a new isolated worktree plus a task-specific compose project name, for example `COMPOSE_PROJECT_NAME=codex-colregs-fix`. Do not reuse `mass-l3-sil` for experiments unless the task explicitly targets the demo stack.
-- If a temporary feature stack must use the normal demo ports, stop or move only the conflicting feature stack first. Do not stop the demo stack unless the user explicitly prioritizes the feature stack or the task is to repair the demo stack.
-- When repairing the demo stack, first confirm its source mounts point at the intended `l3-tdl` worktree, then rebuild/recreate only the `mass-l3-sil` project.
-
-Per-thread completion contract before integration:
-- Keep diffs surgical and limited to the task.
-- Run targeted tests for the touched code in that worktree.
-- Report changed paths, test commands, test results.
-- Do not push feature branches to GitLab before the acceptance gate below passes.
-- Clean up after the worktree is finished: stop its compose project with the same `COMPOSE_PROJECT_NAME`, remove task-owned orphan containers, stop detached Vite/tmux sessions, and remove the worktree after its branch is merged or abandoned.
-- Space cleanup must be scoped. Remove task-owned build/install/log artifacts, `web/node_modules`, generated runs, and images only when they belong to that worktree/project. Do not prune shared Docker volumes, shared images, or the demo runtime stack without explicit approval.
-
-Integration flow（单机，无跨机同步）:
-1. Start from current `l3-tdl` in `/home/marine.huang/Code/mass-l3/.worktrees/l3-tdl`.
-2. Create a short-lived integration branch, for example `codex/integration-YYYYMMDD`.
-3. Merge tested feature branches into the integration branch one by one.
-4. Resolve conflicts only in the integration branch unless the fix clearly belongs back in a feature branch.
-5. Run targeted tests again after merges, then run the acceptance gate from the next section.
-6. After the gate passes, fast-forward `l3-tdl` from the integration branch.
-7. Push `l3-tdl` to `origin/l3-tdl`（GitLab）。
-
-If any gate fails, fix in the worktree first, rerun the targeted tests and the acceptance gate, then redo the integration merge. Do not repair by editing directly on the demo stack checkout.
-
-## A4000-native deployment gate
-
-Hard rule: 本机即 A4000。验收 gate 必须在本机通过后才能 push 到 GitLab `origin/l3-tdl`。只有一套 A4000-native gate。
-
-Required order:
-1. Develop in a task branch/worktree（`.worktrees/<task>`）。
-2. Run targeted local tests for touched code（colcon test / gtest 二进制）。
-3. Run the A4000 本机 acceptance gate（即标准 A4000 验收）:
-   ```bash
-   source scripts/a4000-env.sh
-   npm run sys:start
-   ./scripts/a4000-acceptance.sh
-   ```
-4. Only after the gate passes, merge into `l3-tdl` and `git push origin l3-tdl`。
-
-Do not push to GitLab first and use the running stack as the first real test host. The worktree checkout under test is source of truth; the running demo stack (`mass-l3-sil`) is the verification surface, not a development area.
-
-## A4000 native container stack
-
-本机使用原生 Docker。compose 环境由 `scripts/a4000-env.sh` 定义。
-
-- A4000-native compose env: `COMPOSE_FILE=docker-compose.yml:docker-compose.a4000.yml:docker-compose.plugins.yml`。
-- Plugin profile env: `COMPOSE_PROFILES=plugins`（仅外部插件联调时开启；默认 `TDL_RUNTIME_PROFILE=internal-local` 无外部插件）。
-- Isolated DDS domain: `ROS_DOMAIN_ID=42`。
-- Ports: orchestrator `https://127.0.0.1:18000`, Foxglove `18765`, Martin tiles `http://localhost:3000/`, Vite `http://localhost:5173/`。不要碰生产/共享端口 `8000`、`8765`（jitsi 等服务占用）。
-- `scripts/a4000-acceptance.sh` 的退出码和完整控制台日志是本机 gate 证据；外部 adaptor probe 另写 `runs/a4000_external_adapter_probe_*.json`。不要把 `local_a4000_*` 产物当作本机必需 gate。
-- `scripts/local-a4000-acceptance.sh` 是其他主机的兼容工具，不属于本机验收流程。除非任务明确维护该兼容工具，否则不要调用。
-- Runtime Console 容器对 `/var/run/docker.sock` 的挂载只在 `docker-compose.a4000.yml` override 中存在，base compose 没有。
-- Inactive plugin candidates may be created but stopped for hot switching; the runtime gate still requires exactly one running plugin per role.
-- Demo stack startup from a clean `l3-tdl` worktree:
-  ```bash
-  source scripts/a4000-env.sh
-  COMPOSE_PROJECT_NAME=mass-l3-sil docker compose up -d --build
-  ```
-- Feature/bugfix 容器工作必须用独立 worktree + 任务级 compose project name，例如 `COMPOSE_PROJECT_NAME=nlp-cpa-fix`（当前活跃示例：`nlp-cpa-fix-sil-nodes-1` 等）。不要把实验容器复用 `mass-l3-sil`。
-- Frontend dev server for screen 2 `仿真检查`:
-  ```bash
-  cd web
-  ORCH_PORT=18000 FOX_PORT=18765 npm run dev -- --host 0.0.0.0
-  ```
-- If a persistent local frontend is needed, run it in a detached shell/tmux session; do not treat Vite as part of the Docker acceptance gate.
-- Screen 02 `仿真检查` runtime surface is the Runtime Console for TDL core readiness and one-active-plugin-per-role external plugin checks. Do not add extra display-only dependencies or subscribe to nonessential external data.
-
-## A4000 verification（本机）
-
-本机就是 A4000，不存在跨机部署/同步。开发、构建、容器验收、证据采集都在当前服务器完成。
-
-- TDL 部署与验证账户：`marine.huang`。固定集成/runtime checkout：`/home/marine.huang/Code/mass-l3/.worktrees/l3-tdl`（分支 `l3-tdl`）。不要再创建其他长期集成 checkout；任务 worktree 仍按需创建。
-- 不要把 A4000 的 `mass` 账户当作 TDL 部署/验证环境。`mass` 账户是队友代码的共享上传/暂存区，本仓库不部署到那里。
-- Do not write plaintext passwords into repo docs, scripts, commits, logs, or prompts.
-- 本机上的共享外部模块路径（外部联调用，访问权限以本机实际为准）:
-  - Hydrodynamics and route planning: `/home/mass/simulation/`
-  - Sensor fusion ROS2 workspace: `/home/mass/yougc/ros2_ws`
-- Ports: orchestrator `18000`, Foxglove `18765`, Vite `5173`。不要碰生产/共享端口 `8000`、`8765`。
-- Normal 本机 verification flow（无 sync 步骤）:
-  ```bash
-  source scripts/a4000-env.sh
-  npm run sys:start
-  ./scripts/a4000-acceptance.sh
-  ```
-- `./scripts/a4000-acceptance.sh --sync` 已禁用。版本更新必须经任务分支、测试、合并进入 `l3-tdl`，不能由验收脚本拉取或重置代码。
-- 版本管理一律走 git：在 worktree 里 commit/merge，最后 `git push origin l3-tdl`。不要用 `rsync --delete`、repo-wide overwrite、`git pull`/`git reset` 或 broad checkout replacement 去覆盖本机 checkout，除非用户显式批准 clean-host 重建。
-- If scenario configuration wedges around `env_disturbance`, suspect concurrent configure drivers. Only one driver should configure SIL at a time; reset with `docker compose restart sil-nodes`.
-- For external adaptor testing, switch profile and keep JSON evidence:
-  ```bash
-  curl -sk -X POST "${ORCH_URL}/api/v1/integration/profile" \
-    -H 'Content-Type: application/json' \
-    -d '{"name":"a4000_external"}'
-  curl -sk -X POST "${ORCH_URL}/api/v1/integration/probe" \
-    | tee runs/a4000_external_adapter_probe_$(date +%Y%m%d_%H%M%S).json
-  ```
-
-## promotion rule
-
-- A branch is promotable only when targeted unit tests, the A4000 本机 acceptance gate, and any required adaptor probe all pass.
-- After the gate passes:
-  - Merge the integration branch into `l3-tdl`.
-  - GitLab target remains `l3-tdl` (`origin/l3-tdl`)。本机无 GitHub remote，不要尝试 push `main` 到 GitHub。
-  - Include the acceptance evidence path（`runs/...json`）in handoff/MR notes.
-- If the gate fails, fix in the worktree first, rerun targeted tests and the acceptance gate, then redo the integration merge.
-
-## Docker and build cache
-
-- `sil_nodes.Dockerfile` uses BuildKit cache mounts. Do not remove `# syntax=docker/dockerfile:1.5` or `--mount=type=cache`; doing so turns incremental builds into full rebuilds.
-- Treat `/root/.ccache` as shared ccache state. Treat `/opt/ws/build` as private colcon state; do not create concurrent writers to the same colcon build directory.
-- New Dockerfiles that run `colcon build` should follow the same cache pattern.
-
-## codegraph
-
-This project uses CodeGraph as the code index. The index lives in `.codegraph/`; do not probe legacy graph-index paths.
-
-Rules:
-- After creating or entering a task worktree, run `codegraph init` from that worktree before relying on CodeGraph. Verify with `codegraph status .`; if it reports an index from another git working tree, treat results as stale routing only and initialize/sync the current worktree first.
-- When calling CodeGraph MCP from Codex/Desktop, always set `projectPath` to the active worktree path. For CLI fallback, run `codegraph ... .` from that same worktree. Do not query a feature branch through the primary checkout index.
-- For codebase questions, call `codegraph_explore` first. Use it for "how does X work", architecture, bug tracing, "where is X", and area surveys; one capped call usually returns the relevant source grouped by file.
-- For focused follow-up, use `codegraph_search`, `codegraph_callers`, `codegraph_callees`, `codegraph_impact`, `codegraph_node`, `codegraph_files`, and `codegraph_status`.
-- If the current Codex/Desktop thread does not expose the MCP tools, use the CodeGraph CLI fallback: `codegraph query`, `codegraph callers`, `codegraph callees`, `codegraph impact`, `codegraph files`, and `codegraph status`.
-- Avoid broad grep or full-file reads before CodeGraph gives coordinates. Use raw source reads only to confirm a specific detail CodeGraph did not cover.
-- The CodeGraph watcher normally syncs writes in about 1 second. No manual update is needed after edits; if `codegraph status .` shows pending files or the watcher is unavailable, run `codegraph sync .`.
-
-## project research, memory, and handoff
-
-- Project NLM domain notebooks: `safety_verification`, `maritime_regulations`, `colav_algorithms`, `maritime_human_factors`, `ship_maneuvering`, `silhil_platform`, and `cybersecurity`. Use `.nlm/config.json` routing before introducing new research paths.
-- MemPalace is the project-local memory authority. Headroom is compression only, not the memory authority. Use the `mass_l3_tactical_layer` wing for all project drawers. The three-phase memory discipline is **mandatory** (no auto-save hooks; ZCode does not parse Claude hooks, so this relies on agent self-discipline per session):
-  - **Session start**: run `mempalace wake-up --wing MASS-L3` (CLI) or call `mempalace_diary_read` (MCP) to load recent context (~600-900 tokens) before doing meaningful work. Skip only if the task is trivial or mempalace is down.
-  - **Before session end / context compaction**: write one AAAK-format summary via `mempalace_diary_write` (task goal / key decisions / artifacts produced / open items). This is the substitute for the non-existent PreCompact hook.
-  - **At each key decision point** (design choice, interface contract, non-obvious fix, gotcha): persist via `mempalace_add_drawer` so future sessions can retrieve it with `mempalace search "<keywords>"`.
-  - HNSW corruption symptom (`status` reports `quarantined` / repeated `.drift-*` segments): run `mempalace repair --yes`. After a full re-embed of ~110k drawers on v3.4.1, `legacy` rebuild mode recovered all drawers while `from-sqlite` mode truncated to ~10%; prefer `legacy` unless the chromadb client itself cannot open the collection.
-- After meaningful work, append a curated handoff entry to `handoff/workspace_log.md` using: `## [date] Agent / Git Commit / Task Goal / Core Changes / Current Status / Handoff Notes`.
-- Do not run retired `archive_to_headroom.py`.
+- Project NLM domains come from `.nlm/config.json`; do not duplicate notebook routing here.
+- Follow global memory lifecycle; project wing is `MASS-L3`. If the active runtime lacks autosave, write one AAAK handoff before session end/compaction.
+- After meaningful work append `handoff/workspace_log.md`; do not run retired `archive_to_headroom.py`.
+- Every task worktree uses its own `.codegraph` index. Initialize/check it before relying on results.
+- CodeGraph MCP `projectPath` and CLI cwd must equal the active worktree; never query a feature branch through another checkout index.
 
 ## Codex subagent routing
 
-Primary agent is sole TDL Lead: it owns stage classification, routing, final synthesis, and decision authority. Routing must not be delegated to another agent. Custom agents supply bounded implementation or independent evidence; they never decide by majority vote.
+Primary agent is sole TDL Lead: it owns stage classification, routing, synthesis, and final authority. Routing must not be delegated to a router agent. No-chain rule: subagents must return findings to primary agent.
 
-### Stage classification
+- Concrete failures: systematic debugging first, then SIL first-divergence evidence; use Spec Preflight only for missing/contradictory authority or contracts.
+- Unique write owner: exactly one workspace writer per implementation task. Reviewers default to read-only; SIL must not edit production behavior.
+- M5 must not self-approve M5-to-L4 executability; use independent GNC contract review.
+- Approved M7 production implementation uses one fresh scoped writer in an isolated worktree; `tdl_m7_safety_reviewer` remains independent and read-only.
+- Permission override may narrow access; expansion requires task-scoped write authorization, named paths, and reason. Reviewer independence cannot be overridden.
+- Model and reasoning override must record reason. A Codex model override must use a model exposed by the current Codex runtime.
 
-Classify task by stage before selecting role:
-
-| Stage | Default route | Exit condition |
+| Trigger / assignment | Role | Default |
 |---|---|---|
-| Discovery / product intent | `tdl_product_conops` for requirements; `tdl_spec_architect` for system/design readiness | Scope, authority, unknowns, evidence needs identified |
-| Concrete failure diagnosis | `superpowers:systematic-debugging`, then `tdl_sil_vv_engineer` for SIL first-divergence evidence | First broken contract and owning domain identified |
-| Implementation | Exactly one workspace-write domain role | Targeted tests and task evidence complete |
-| Verification | `tdl_sil_vv_engineer` plus conditional independent reviewers | Required RED/GREEN, regression, and gate evidence complete |
-| Review / assurance | `tdl_code_reviewer` plus risk-triggered safety, GNC, cyber, or certification reviewer | Blocking findings resolved or explicitly accepted by user |
+| PRD, ConOps, ODD outcomes, operator workflow | `tdl_product_conops` | read-only |
+| M1-M4 state, mission, CPA/TCPA, behavior | `tdl_decision_chain_engineer` | workspace-write |
+| M6 rule, role, phase, direction, release | `tdl_colregs_m6_reasoner` | workspace-write |
+| M5 Mid/BC-MPC, committed route, recovery | `tdl_m5_planner_engineer` | workspace-write |
+| ROS2 message, topic, QoS, launch, bridge | `tdl_ros2_integration_engineer` | workspace-write |
+| M8 HMI, replay, alerts, Runtime Console | `tdl_hmi_m8_frontend` | workspace-write |
+| A4000, Docker, Compose, deployment gate | `tdl_devops_a4000_engineer` | workspace-write |
+| Proven low-risk mechanical edit | `tdl_mechanical_implementer` | workspace-write |
+| M5-to-L4 executability | `tdl_gnc_contract_reviewer` | read-only |
+| M7, veto/MRM, degradation, fail-safe | `tdl_m7_safety_reviewer` | read-only |
+| Production diff correctness/regression | `tdl_code_reviewer` | read-only |
+| Trust boundary, secret, DDS/plugin exposure | `tdl_cyber_reviewer` | read-only |
+| Certification claims and traceability | `tdl_cert_evidence_engineer` | read-only |
+| SIL reproduction, RED/GREEN, first divergence | `tdl_sil_vv_engineer` | read-only |
+| Spec preflight, contracts, readiness | `tdl_spec_architect` | read-only |
 
-Do not escalate a reproducible failure into new design merely because cause is unknown. Run systematic debugging and SIL first-divergence analysis first. Use Spec preflight only when evidence shows missing/contradictory authority, contract, lifecycle, or requirement.
+Conditional reviewers:
 
-### Ownership and independence
-
-- Unique write owner: every implementation assignment has exactly one write owner. Cross-domain work is split into explicit tasks or assigned to dominant owner with other roles read-only.
-- Reviewers default to read-only. Product, Spec, GNC, M7, code, cyber, certification, and SIL roles do not modify workspace by default.
-- Approved M7 production changes use one fresh, scoped dynamic implementation agent in an isolated worktree as unique write owner; do not add a persistent role. `tdl_m7_safety_reviewer` remains independent and read-only, then reviews that implementation. Primary agent may own only an explicitly scoped small M7 fix. Reviewer and implementer must never share the same agent context.
-- M5 planner must not self-approve M5-to-L4 executability. `tdl_gnc_contract_reviewer` supplies independent contract review.
-- SIL must not edit or modify production behavior. Primary agent may override SIL to `workspace-write` only for explicit test/scenario authoring.
-- Primary agent selects conditional independent reviewers from actual impact, not role count or consensus.
-- No-chain rule: subagents must return findings to primary agent. They must not freely delegate, spawn chains, or reroute work.
-
-Permissions override: primary agent may narrow access at dispatch. Expansion from `read-only` to `workspace-write` requires explicit task-scoped write authorization, named paths, and a stated reason; reviewer independence cannot be overridden.
-
-Model and reasoning override: task dispatch may override both model and reasoning effort when the runtime supports them; otherwise use the role defaults. A Codex model override must name a model exposed by the current Codex runtime; never inherit a ZCode-only model name such as `deepseek-v4-flash`. Promote reasoning effort to `xhigh` for contested cross-module architecture or safety decisions. Lower effort only for proven mechanical work. Record every override reason in dispatch.
-
-### Stage and domain routes
-
-| Trigger / assignment | Role | Default mode |
-|---|---|---|
-| PRD, ConOps, ODD outcome, ROC/Captain workflow, ToR/MRC acceptance semantics | `tdl_product_conops` | read-only |
-| M1-M4 ODD, world state, mission tracking, CPA/TCPA flow, behavior arbitration | `tdl_decision_chain_engineer` | workspace-write |
-| M6 COLREGs rule, role, phase, direction, constraint, release semantics | `tdl_colregs_m6_reasoner` | workspace-write |
-| M5 Mid-MPC/BC-MPC, NLP, committed route, recovery, solver behavior | `tdl_m5_planner_engineer` | workspace-write |
-| Approved M7 production implementation | Fresh scoped dynamic implementation agent selected by primary agent; not a persistent role | isolated worktree, workspace-write |
-| ROS2 topic, message/IDL/schema, QoS, launch, timing, bridge compatibility | `tdl_ros2_integration_engineer` | workspace-write |
-| M8 HMI, Runtime Console, SAT display, replay, alerts, ToR frontend | `tdl_hmi_m8_frontend` | workspace-write |
-| Docker, compose, BuildKit, A4000 runtime, ports, deployment/acceptance gate | `tdl_devops_a4000_engineer` | workspace-write |
-| Explicit low-risk mechanical edit with no semantic or interface choice | `tdl_mechanical_implementer` | workspace-write |
-| Independent M5-to-L4 route/command executability review | `tdl_gnc_contract_reviewer` | read-only |
-| M7, doer-checker independence, VETO/MRM, SOTIF, degradation, fail-safe review | `tdl_m7_safety_reviewer` | read-only |
-| Diff/package correctness, regression, tests, maintainability, rule compliance | `tdl_code_reviewer` | read-only |
-| DDS security, integrity/replay, secrets, dependency/plugin, adapter exposure | `tdl_cyber_reviewer` | read-only |
-| CCS/IMO/IEC/ISO claims, ASDR traceability, requirement-test-evidence gaps | `tdl_cert_evidence_engineer` | read-only |
-| SIL scenario reproduction, RED/GREEN, first divergence, probe/gate evidence | `tdl_sil_vv_engineer` | read-only |
-| Spec preflight, current-system reconstruction, contracts/options/readiness | `tdl_spec_architect` | read-only |
-
-Conditional independent reviewer triggers:
-
-- Any M5 route/command or recovery change affecting L4: `tdl_gnc_contract_reviewer`.
-- Any M5/M6/M7, ODD degradation, VETO, MRM, ToR safety, or fail-safe change: `tdl_m7_safety_reviewer`.
-- Any non-mechanical production diff: `tdl_code_reviewer`.
-- Any trust boundary, external adapter, secret, DDS security, plugin, Docker socket, or dependency change: `tdl_cyber_reviewer`.
-- Any certification-facing requirement, safety claim, architecture evidence, or traceability change: `tdl_cert_evidence_engineer`.
-- Any safety-critical behavior change: `tdl_sil_vv_engineer` for independent regression evidence.
+- M5/L4 route or recovery changes -> `tdl_gnc_contract_reviewer`.
+- M5/M6/M7, ODD degradation, veto/MRM, or fail-safe -> `tdl_m7_safety_reviewer`.
+- Non-mechanical production diff -> `tdl_code_reviewer`.
+- Trust boundary, adapter, dependency, plugin, or Docker socket -> `tdl_cyber_reviewer`.
+- Certification claim or traceability -> `tdl_cert_evidence_engineer`.
+- Safety-critical behavior -> `tdl_sil_vv_engineer`.
 
 ### Mandatory task header
 
-Before implementation, primary agent states:
-
-1. Affected modules: M1-M8.
-2. Affected files.
-3. Affected ROS2 topics / messages / IDL.
-4. ODD impact.
-5. COLREGs impact.
-6. M5/M7 boundary impact.
-7. Required tests.
-8. Required SIL scenarios.
-9. Required evidence output.
+Before implementation state: affected modules/files; ROS2 topics/messages/IDL; ODD, COLREGs, and M5/M7 impacts; required tests/SIL scenarios/evidence.
 
 ### Completion contract
 
-Every subagent returns status (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`), changed paths (or none), commands run, exact results, evidence paths, interface/ODD/COLREGs/M5-M7 impact, remaining risks, and escalation needs. Write owners also report tests for touched code. Reviewers explicitly report workspace writes as none. Primary agent verifies evidence, synthesizes disagreements, and alone declares task completion.
+Return status (`DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, `BLOCKED`), changed paths, commands and exact results, evidence paths, interface/safety impacts, remaining risks, and escalation needs. Primary agent verifies evidence and alone declares completion.
