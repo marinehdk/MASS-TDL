@@ -1400,10 +1400,12 @@ def _build_session_list_records(
             source_label,
             session.get("source"),
             session["suite"],
+            mode,
             _MODE_LABELS[mode],
             worktree,
             session.get("worktree_name"),
             session.get("branch"),
+            outcome,
             _OUTCOME_LABELS[outcome],
             result_display,
         ]
