@@ -4685,3 +4685,65 @@ timeout 580 python3 scripts/run_6_scenarios.py \
 **下一步建议**:
 1. 若要验证 fast 模式在 ho 上的实际行为,需先解决 acados dispatch gate 问题(warm_up_succeeded=false + short-TCPA<2000s),否则 fast 模式评估的还是 IPOPT fallback 路径
 2. 若需要完整 colregs runner 集成(--run-name、sealed-run、trace-subdir 等 25 个 runner commit 的全部能力),需单独评估批次 C 全量 patch 的工作量
+
+## [2026-07-20] ZCode / fe251260b + ccd9acd1f / M5 acatos CPA hard floor true-hard 化 全链路(L0→L1 Step2→Step5→L1a-spec-freeze 批次1) / L0+L1a-spec-freeze 批次1 commit,待 codegen+colcon+SIL 验证
+
+### Task Goal
+修复 M5 Mid-MPC acatos 后端在 3 个 reference-feasible Rule14 输入上首次 QP 即 NAN_SOL(raw status 4 / HPIPM QP3)的根因。按"问题错/难求/不能用"三段法 + 7 层架构(L0-L5+LX)逐层修复,本会话完成 L0 全部 + L1 Step2 grilling + Step5 DESIGN-IT-TWICE nh 抉择 + L1a-spec-freeze 批次 1(CPA hard floor true-hard 化)。
+
+### Core Changes (worktree `.worktrees/m5-design-grounding`, branch `codex/m5-design-grounding`)
+
+**commit `6a0c12f3b` — L0 输入守卫(上一会话遗留,已 GATE 通过)**
+- types.hpp: 新增 MidMpcInput::InputDegradation bitmask(own_psi/own_u/target/speed_box/reachability/planned_speed 6 位 + summary/any/reset)
+- mid_mpc_node.cpp assemble_input_: L0-A 6 个 guard(NaN/Inf/negative clamp + degraded 标记)+ L0-B box-reach sanity + L0-C ROS param m5.cpa_hard_m
+- BehaviorPlan.msg:25: 注释同步 v2.2 direction-aware 语义(BUG-L0-01)
+- test_l0_input_guards.cpp: 16 tests(T-L0-1..4 + T-L0-5a..e + T-L0-4b..d)
+- validate_speed_box / validate_earliest_min_alt_k 提取为 free function(L0-A refactor)
+
+**commit `fe251260b` — L1a-spec-freeze 批次 1 (DP-01 CPA hard floor true-hard 化, Step5 方案 B VR-01 final)**
+- formulation.hpp: 新增 kGIdxCpaHard=154 (slot 追加,26+128=154) + kAcadosNpGlobal 154→155 + kAcadosGIdxCpaSafe=10 公开别名(code-review M1)
+- formulation.cpp build_con_h_: CPA residual 从 `cpa_safe*cpa_safe` 改 `cpa_hard*cpa_hard`; pack_parameters 写 g[154]=cpa_hard_m; J_colreg cost barrier 保留读 cpa_safe
+- gen_mid_mpc_acados.py: G_CPA_HARD=154 镜像 + **删 idxsh/Zl/zl/Zu/zu**(代码全删,注释保留审计)+ NP_GLOBAL=155; nsh 从 idxsh 推导 + assert nsh==0 defense-in-depth(M2)
+- mid_mpc_acados_solver.cpp: kAcadosNt(16,layout) 与 kAcadosNsh(0,slack) **解耦**(保证 row offset 在 nsh 16→0 过渡期稳定); constraints_satisfied_ CPA 检查改纯 hard `h>=-kBoxTol`(nsh=0 guard 保留 stale-header 过渡兼容); 新增 soft_aspiration_d_min_m + violation_m telemetry(FB-2 补救, C2 docstring 声明 d_min 只覆盖 suffix stages)
+- types.hpp: MidMpcSolution 新增 soft_aspiration_d_min_m / soft_aspiration_violation_m(default 0.0, additive)
+- mid_mpc_node.cpp: ASDR JSON + SAT reasoning_chain 新增 soft_asp diagnostic(additive)
+- test_l1a_cpa_hard_floor.cpp(新): T-B2 adversarial residual + T-B6a/b/c 参数隔离
+- test_mid_mpc_acados_formulation.cpp: np_global 断言 154→155
+- CMakeLists.txt: 注册 test_l1a_cpa_hard_floor
+
+**commit `ccd9acd1f` — 设计 docs + 架构文档(本会话设计产出归档)**
+- M5_MPC_业务流程分层架构.md (新, 7 层架构主文档 §1-§12)
+- design-logs/2026-07-20-m5-acados-c1-semantic-ocp-design-log.md(决策树状态:9 BL + 7 SC + VR-07/08/09 + ALT-08/09/10 + R23..R31 + Step2 + Step5)
+- 6 份 review artifact(2 L1a 评审 + 2 Step5 方案深化 + L0 grilling + diagnostic plan)
+
+### Current Status
+- ✅ L0 全部完成,GATE 6/6 通过(commit 6a0c12f3b)
+- ✅ L1 Step2 grilling 完成:两份独立评审(ZCode agent_1436144e + Codex 同步跑)对照 14 项议题
+- ✅ Step5 DESIGN-IT-TWICE nh 抉择完成:方案 B(ALT-09 nh=20+nsh=0+J_colreg)采纳,方案 A(ALT-08 nh=36 双 row)弃用
+- ✅ L1a-spec-freeze 批次 1 源码完成 + 两份独立审查(PASS + PASS_WITH_FINDINGS)
+- ⚠️ **关键过渡期**:本批次源码在 codegen re-run 前不改变 solver runtime 行为。stale header(NSH=16/NP=210)与本批次源码(期望 NSH=0/NP=211)不兼容,acatos-ON build 在 codegen 前会 NP mismatch crash
+
+### Investigation Chain(根因诊断 → 7 层架构 → 逐层修复)
+1. **根因**:acatos CPA row 全部进 idxsh(gen:510 `idxsh=arange(NT)+2`),BL-A 数学事实证实 row 进 idxsh 后残差减 slack → 结构上永远 soft;增大 Zl 不能强制 slack==0。CPA "hard floor" 实际是 soft,3 个 reference-feasible Rule14 case 在 soft floor 下 solver 解出违反 ample-time 的轨迹后被 KKT 拒绝 → raw 4
+2. **架构决策(ARCH-DECISION-01..04)**:采用 7 层结构(L0 上游输入 / L1 OCP 建模 / L2 求解准备 / L3 数值求解 / L4 解复核 / L5 输出降级 / LX 横向诊断)逐层修复,层间 GATE 管控;实施前发现的 bug 记录到 §12.3 不跨层提前修
+3. **L0 完成**:6 个输入 guard + InputDegradation bitmask 追溯机制(own_psi/own_u/target/speed_box/reachability/planned_speed)
+4. **L1 Step2 评审暴露 9 盲区**:BL-08(kGIdxCpaHard slot 不存在)、BL-09(nh=20 vs 36)、BL-10(terminal NHN=0/NBXN=0)、BL-11(continuous/swept CPA)、BL-12(k_head + t_latest_safe ample-time 双量)、BL-13(grid physical-time map off-by-one)、BL-14(r0=0)、BL-15(IPOPT σ 非 true hard)
+5. **Step5 抉择**:方案 B 胜 5/7 判别点(IPOPT parity / 回归面 / conditioning / 工程先例 / 返工概率);方案 A 胜 slack telemetry(可被 L4 d_min+violation_m 替代)
+
+### Pitfalls & Gotchas(下次会话必读)
+1. **worktree 纪律违反教训**:本会话在脏 worktree 启动 subagent,批次 1 与之前会话遗留的 gate-2 v3.1 dispatch redesign(mid_mpc_solver.cpp/.hpp + test_mid_mpc_solver.cpp + mid_mpc_diagnostic_capture.hpp untracked)混在一起。已剥离(9 个非批次1文件回滚到 HEAD + 去 diagnostic_capture include)。**下次会话启动 subagent 前必须 `git status` 确认 clean 或显式声明 dirty 范围**。
+2. **构建环境分离**:本机 host 没有 acatos/casadi Python 模块,只在 sil_nodes **构建容器**(不是运行容器)里有。codegen + colcon test 必须进容器跑;host 只能做符号层验证(gen.py 语法 + slot 算术 + grep 检查)
+3. **codegen 在 colcon build 时自动触发**(CMakeLists.txt:264 `COMMAND ${Python3_EXECUTABLE} gen_mid_mpc_acados.py`),需 CasADi + acatos C 库(都在容器 /usr/local)
+4. **stale c_generated_code 是 git-ignored**(不在版本控制),每次 colcon build 会重生成
+5. **NLM retrieval 不可信**:Codex 验证 maritime_regulations/colav_algorithms NLM 查询未返回 payload,证据规则修正为只用 IMO/MAIB 一手源(VR-09)
+6. **subagent 沿用遗留依赖风险**:subagent 在脏 worktree 工作时会沿用遗留代码的 include(如 diagnostic_capture.hpp),剥离时必须检查新增 include 是否引入非批次依赖
+
+### Handoff Notes(给下次会话)
+- **必须先跑 codegen**:`python3 gen_mid_mpc_acados.py` 重生成 c_generated_code,让 NSH=0/NP=211 生效。否则批次 1 源码不改变 runtime
+- **BUG-BUILD-01 仍 open**:m5_mid_mpc_node 编译失败(mid_mpc_node.hpp:18 include bc_mpc_health.hpp 在 subagent 构建环境未生成 msg header)。需在正确构建环境验证
+- **遗留 dirty 已剥离**:gate-2 v3.1 dispatch redesign(mid_mpc_solver.cpp/.hpp + test_mid_mpc_solver.cpp + diagnostic_capture.hpp)已 `git checkout HEAD --` 回滚。如果需要恢复那个工作线,查 `git reflog` 或主 checkout `/home/marine.huang/Code/mass-l3`(可能有 stash/branch)
+- **本会话所有设计决策已落盘** docs/superpowers/design-logs/2026-07-20-m5-acados-c1-semantic-ocp-design-log.md(权威索引)+ M5_MPC_业务流程分层架构.md §12(实施总表)
+
+### Next Steps(新对话核心提示词)
+
+见下方完整提示词。
