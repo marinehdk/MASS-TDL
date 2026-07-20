@@ -297,6 +297,12 @@ if(M5_HAS_ACADOS)
   # Public so Task 17's #ifdef M5_USE_ACADOS wrapper compiles in for every
   # consumer of m5_shared_lib.
   target_compile_definitions(m5_shared_lib PUBLIC M5_USE_ACADOS=1)
+  # TEMPORARY Phase-1 diagnostic: per-stage chrono profiling of acados solve.
+  # Toggle via -DM5_ACADOS_PROFILE=ON at configure time. Off by default;
+  # removed after the 12.5 s/solve bottleneck is identified.
+  if(M5_ACADOS_PROFILE)
+    target_compile_definitions(m5_shared_lib PUBLIC M5_ACADOS_PROFILE=1)
+  endif()
 
   # P1b-1b Task 17: the acados solver wrapper. Only added under M5_HAS_ACADOS —
   # it includes acados_solver_m5_mid_mpc_acados.h (T16 codegen output), which is
@@ -592,9 +598,14 @@ if(BUILD_TESTING)
       test/unit/test_stand_on_reject.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
-  endif()
-
-  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
+	  endif()
+	
+	  # ── L0 input guard tests (types.hpp helpers, no CasADi needed) ────────
+	  m5_add_gtest(test_l0_input_guards
+	    test/unit/test_l0_input_guards.cpp
+	  )
+	
+	  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
 
   # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
   m5_add_gtest(test_committed_route
@@ -698,6 +709,12 @@ if(BUILD_TESTING)
 	      test/unit/test_mid_mpc_acados_solver.cpp
 	      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
 	    )
+	    # TEMPORARY Phase-1 diagnostic: per-stage chrono profiling of acados solve.
+	    # Toggle via -DM5_ACADOS_PROFILE=ON at configure time. Off by default;
+	    # removed after the 12.5 s/solve bottleneck is identified.
+	    if(M5_ACADOS_PROFILE)
+	      target_compile_definitions(test_mid_mpc_acados_solver PRIVATE M5_ACADOS_PROFILE=1)
+	    endif()
 	    # P6 fix: N=80 acados solver tests take ~44s/test × 13 = ~572s total,
 	    # exceeding the 120s default in m5_add_gtest. Override per-test timeout.
 	    set_tests_properties(test_mid_mpc_acados_solver PROPERTIES TIMEOUT "600")

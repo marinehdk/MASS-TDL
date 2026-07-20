@@ -131,6 +131,11 @@ class MidMpcNode : public rclcpp::Node {
 
   double nominal_speed_kn_{10.0};
 
+  // L0-C: CPA hard floor [m]. Read from ROS param m5.cpa_hard_m at startup;
+  // defaults to kCpaSafeFallback_m (1852.0) when param absent or invalid.
+  // Calibrate via odd_aware_thresholds.yaml cpa_hard_m (shared with M6/M2).
+  double cpa_hard_m_{1852.0};
+
   void on_solve_cycle_();
   [[nodiscard]] bool has_required_inputs_() const noexcept;
   [[nodiscard]] MidMpcInput assemble_input_();

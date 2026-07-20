@@ -129,7 +129,8 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
     const l3_msgs::msg::AvoidancePlan& plan,
     bool nlp_ok,
     double valid_until_s,
-    const CommittedCandidateRiskContext& risk) {
+    const CommittedCandidateRiskContext& risk,
+    double cpa_hard_m) {
   mass_l3::m5::committed_route::CommittedRouteCandidate candidate;
   candidate.plan_id = plan.plan_id;
   candidate.valid_until_s = valid_until_s;
@@ -183,7 +184,7 @@ mass_l3::m5::committed_route::CommittedRouteCandidate committed_candidate_from_p
   //   min_target_cpa_m (M2 predicted) is retained on the context for telemetry
   //   / future candidate-route CPA work, but no longer feeds the commit gate.
   candidate.current_cpa_m = risk.min_target_current_range_m;
-  candidate.cpa_hard_m = kCpaSafeFallback_m;
+	  candidate.cpa_hard_m = cpa_hard_m;
   // Phase 2.1/2.3 (R2/R6, spec v2.3 §3.2): forward the candidate's achieved
   // terminal CPA + target open/close state so risk_trigger_event can apply
   // the tail-gate-aligned floor (skip on active approach, hard on release).
@@ -398,9 +399,18 @@ MidMpcNode::MidMpcNode(const Config& cfg)
   solver_.set_acados_solver(std::move(acados_slv));
 #endif
 
-  nominal_speed_kn_ = declare_parameter<double>("m5.nominal_speed_kn", 10.0);
+	  nominal_speed_kn_ = declare_parameter<double>("m5.nominal_speed_kn", 10.0);
 
-  sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
+	  // L0-C: CPA hard floor [m]. Calibrate via odd_aware_thresholds.yaml cpa_hard_m.
+	  // Validation: non-positive or non-finite → warn + fallback to hardcoded default.
+	  cpa_hard_m_ = declare_parameter<double>("m5.cpa_hard_m", kCpaSafeFallback_m);
+	  if (!std::isfinite(cpa_hard_m_) || cpa_hard_m_ <= 0.0) {
+	    spdlog::warn("[M5][MidMPC][L0-C] invalid cpa_hard_m={}; "
+	                 "fallback to hardcoded {} m + degraded", cpa_hard_m_, kCpaSafeFallback_m);
+	    cpa_hard_m_ = kCpaSafeFallback_m;
+	  }
+
+	  sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
       "/l3/m2/world_state", 10,
       [this](l3_msgs::msg::WorldState::SharedPtr msg) {
         world_state_ = std::move(msg);
@@ -503,6 +513,8 @@ MidMpcInput MidMpcNode::assemble_input_()
 
   inp.own_ship.x_m     = 0.0;
   inp.own_ship.y_m     = 0.0;
+  // L0-A: reset degradation tracking at the start of each cycle (ARCH-DECISION-03).
+  inp.degradation.reset();
   // Fix C-2b (Codex review 2026-07-03): normalize own_psi to [-π, +π] to match
   // the NLP psi variable box. Rule17 (|psi-own_psi|<=5°) and direction/min_alt
   // rows use raw psi - own_psi; if own_psi=2π (positive-normalized from a
@@ -510,23 +522,63 @@ MidMpcInput MidMpcNode::assemble_input_()
   // of 0 → constraint set empty → Infeasible. All downstream consumers
   // (kIdxOwnPsi, constraint_inputs.own_ship_psi_rad, route-frame, risk_ctx)
   // read inp.own_ship.psi_rad, so wrapping once here fixes all paths.
-  inp.own_ship.psi_rad = mass_l3::m5::normalize_heading_signed(
-      world_state_->own_ship.heading_deg * units::kRadPerDeg);
-  
+  // L0-A guard: NaN/Inf heading → fallback 0.0 + degraded flag (never silently
+  // propagate a bad value into the NLP; downstream sees the substitution).
+  const double raw_heading_rad =
+      world_state_->own_ship.heading_deg * units::kRadPerDeg;
+  if (!std::isfinite(raw_heading_rad)) {
+    spdlog::warn("[M5][MidMPC][L0] non-finite own_ship heading_deg={}; "
+                 "fallback psi_rad=0.0 + degraded", world_state_->own_ship.heading_deg);
+    inp.own_ship.psi_rad = 0.0;
+    inp.degradation.own_psi_degraded = true;
+  } else {
+    inp.own_ship.psi_rad = mass_l3::m5::normalize_heading_signed(raw_heading_rad);
+  }
+
+  // L0-A guard: negative/non-finite own speed → fallback 0.0 + degraded.
   const double u_water = world_state_->own_ship.u_water;
-  inp.own_ship.u_mps   = (u_water > 0.1) ? u_water
-                         : world_state_->own_ship.sog_kn * units::kMsPerKn;
+  const double u_sog_mps = world_state_->own_ship.sog_kn * units::kMsPerKn;
+  if (u_water > 0.1 && std::isfinite(u_water)) {
+    inp.own_ship.u_mps = u_water;
+  } else if (std::isfinite(u_sog_mps) && u_sog_mps >= 0.0) {
+    inp.own_ship.u_mps = u_sog_mps;
+  } else {
+    spdlog::warn("[M5][MidMPC][L0] non-finite/negative own speed "
+                 "(u_water={}, sog_kn={}); fallback u_mps=0.0 + degraded",
+                 u_water, world_state_->own_ship.sog_kn);
+    inp.own_ship.u_mps = 0.0;
+    inp.degradation.own_u_degraded = true;
+  }
 
   const double own_lat = world_state_->own_ship.position.latitude;
   const double own_lon = world_state_->own_ship.position.longitude;
 
   for (const auto& tgt : world_state_->targets) {
+    // L0-A guard: skip targets with non-finite lat/lon (would poison the CPA
+    // rows with NaN residuals). Mark degraded so downstream knows a target
+    // was dropped this cycle.
+    if (!std::isfinite(tgt.position.latitude) || !std::isfinite(tgt.position.longitude)) {
+      spdlog::warn("[M5][MidMPC][L0] target id={} has non-finite lat/lon ({},{}); "
+                   "skipped + degraded", tgt.target_id,
+                   tgt.position.latitude, tgt.position.longitude);
+      inp.degradation.target_degraded = true;
+      continue;
+    }
     TargetState ts;
     ts.id       = static_cast<int32_t>(tgt.target_id & 0x7FFFFFFFu);
     ts.x_m      = (tgt.position.latitude  - own_lat) * units::kRadPerDeg * units::kEarthRadiusMean_m;
     ts.y_m      = (tgt.position.longitude - own_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
                   * std::cos(own_lat * units::kRadPerDeg);
-    ts.sog_mps  = tgt.sog_kn * units::kMsPerKn;
+    // L0-A guard: negative/non-finite sog → clamp to 0.0 + degraded.
+    const double tgt_sog_mps = tgt.sog_kn * units::kMsPerKn;
+    if (!std::isfinite(tgt_sog_mps) || tgt_sog_mps < 0.0) {
+      spdlog::warn("[M5][MidMPC][L0] target id={} non-finite/negative sog_kn={}; "
+                   "fallback sog_mps=0.0 + degraded", tgt.target_id, tgt.sog_kn);
+      ts.sog_mps = 0.0;
+      inp.degradation.target_degraded = true;
+    } else {
+      ts.sog_mps = tgt_sog_mps;
+    }
     ts.cog_rad  = tgt.cog_deg * units::kRadPerDeg;
     ts.cpa_m    = tgt.cpa_m;
     ts.cpa_sigma_m = std::sqrt(std::max(tgt.cpa_covariance_m2, 0.0));
@@ -554,28 +606,79 @@ MidMpcInput MidMpcNode::assemble_input_()
   inp.constraints.heading_max_rad = heading_bounds.second;
 
   // v2.2 §4.6: M4 reachability 合约字段（schema 113+）。0 sentinel = M4 未升级。
-  inp.constraints.heading_box_reachable_from_psi0_deg =
-      static_cast<double>(behavior_plan_->heading_box_reachable_from_psi0_deg);
-  inp.constraints.rot_step_deg =
-      static_cast<double>(behavior_plan_->rot_step_deg);
-  inp.constraints.min_alt_required_rad =
-      static_cast<double>(behavior_plan_->min_alt_required_rad);
-  inp.constraints.earliest_min_alt_k =
-      static_cast<double>(behavior_plan_->earliest_min_alt_k);
-
-  inp.constraints.speed_min_mps   = static_cast<double>(behavior_plan_->speed_min_kn) * units::kMsPerKn;
-  double speed_max_raw = static_cast<double>(behavior_plan_->speed_max_kn);
-
-  // R3 fix: if M4 is in fallback mode, use nominal speed instead of current SOG
-  // to break the cascade slowdown feedback loop.
-  const std::string& m4_rationale = behavior_plan_->rationale;
-  if (mass_l3::m5::is_m4_fallback_rationale(m4_rationale)) {
-    spdlog::info("[M5][MidMPC] M4 fallback detected (rationale: '{}'); using nominal speed {:.1f} kn",
-                 m4_rationale, nominal_speed_kn_);
-    speed_max_raw = nominal_speed_kn_;
+  // L0-A guard: reachability fields validated; invalid values mark degraded
+  // and let downstream ROT-reach schedule degrade to v2.1 (sentinel/0 path).
+  // heading_box_reachable: M4 publishes direction-aware magnitude (always ≥0,
+  // BL-B/M4-contract research). 0 sentinel = M4 not upgraded → downstream
+  // degrades to ROT-only. Negative or non-finite is a contract violation.
+  {
+    const double box_reach_deg =
+        static_cast<double>(behavior_plan_->heading_box_reachable_from_psi0_deg);
+    if (!std::isfinite(box_reach_deg) || box_reach_deg < 0.0) {
+      spdlog::warn("[M5][MidMPC][L0] non-finite/negative heading_box_reachable={}; "
+                   "fallback 0 (degrade to v2.1 ROT-only) + degraded", box_reach_deg);
+      inp.constraints.heading_box_reachable_from_psi0_deg = 0.0;
+      inp.degradation.reachability_degraded = true;
+    } else {
+      inp.constraints.heading_box_reachable_from_psi0_deg = box_reach_deg;
+    }
   }
+  // rot_step / min_alt / earliest_k: validated independently. Invalid → degrade.
+  {
+    const double rot_step_deg =
+        static_cast<double>(behavior_plan_->rot_step_deg);
+    if (!std::isfinite(rot_step_deg) || rot_step_deg <= 0.0) {
+      spdlog::warn("[M5][MidMPC][L0] non-finite/non-positive rot_step_deg={}; "
+                   "fallback 0 (downstream ROT-reach skips) + degraded", rot_step_deg);
+      inp.constraints.rot_step_deg = 0.0;
+      inp.degradation.reachability_degraded = true;
+    } else {
+      inp.constraints.rot_step_deg = rot_step_deg;
+    }
+    const double min_alt_rad =
+        static_cast<double>(behavior_plan_->min_alt_required_rad);
+    if (!std::isfinite(min_alt_rad) || min_alt_rad < 0.0) {
+      spdlog::warn("[M5][MidMPC][L0] non-finite/negative min_alt_required_rad={}; "
+                   "fallback 0 + degraded", min_alt_rad);
+      inp.constraints.min_alt_required_rad = 0.0;
+      inp.degradation.reachability_degraded = true;
+    } else {
+      inp.constraints.min_alt_required_rad = min_alt_rad;
+    }
+	    const double earliest_k =
+	        static_cast<double>(behavior_plan_->earliest_min_alt_k);
+	    // L0-A guard: earliest_k ∈ [0, N]; out-of-range → sentinel 0 (degrade to v2.1).
+	    inp.constraints.earliest_min_alt_k =
+	        mass_l3::m5::validate_earliest_min_alt_k(
+	            earliest_k, formulation_.config().n_horizon, inp.degradation);
+	    if (inp.constraints.earliest_min_alt_k != earliest_k) {
+	      spdlog::warn("[M5][MidMPC][L0] out-of-range earliest_min_alt_k={} (N={}); "
+	                   "fallback 0 (degrade to v2.1) + degraded",
+	                   earliest_k, formulation_.config().n_horizon);
+	    }
+	  }
 
-  inp.constraints.speed_max_mps   = speed_max_raw * units::kMsPerKn;
+	  // L0-A guard: speed box. Invalid (negative, non-finite, or max<min) →
+	  // fallback to nominal + degraded. Mirrors the M4-fallback path semantics.
+	  {
+	    const double speed_min_kn = static_cast<double>(behavior_plan_->speed_min_kn);
+	    const double speed_max_kn = static_cast<double>(behavior_plan_->speed_max_kn);
+	    const auto speed_box = mass_l3::m5::validate_speed_box(
+	        speed_min_kn, speed_max_kn,
+	        nominal_speed_kn_,
+	        behavior_plan_->rationale,
+	        inp.degradation);
+	    if (inp.degradation.speed_box_degraded) {
+	      spdlog::warn("[M5][MidMPC][L0] invalid speed box (min_kn={}, max_kn={}); "
+	                   "fallback [0, nominal={:.1f} kn] + degraded",
+	                   speed_min_kn, speed_max_kn, nominal_speed_kn_);
+	    } else if (mass_l3::m5::is_m4_fallback_rationale(behavior_plan_->rationale)) {
+	      spdlog::info("[M5][MidMPC] M4 fallback detected (rationale: '{}'); using nominal speed {:.1f} kn",
+	                   behavior_plan_->rationale, nominal_speed_kn_);
+	    }
+	    inp.constraints.speed_min_mps = speed_box.first;
+	    inp.constraints.speed_max_mps = speed_box.second;
+	  }
   inp.constraints.own_ship_psi_rad = inp.own_ship.psi_rad;
   inp.colregs_conflict_active =
       colregs_constraint_ != nullptr && colregs_constraint_->conflict_detected;
@@ -583,6 +686,29 @@ MidMpcInput MidMpcNode::assemble_input_()
     inp.colregs_primary_role = colregs_constraint_->primary_role;
     inp.colregs_preferred_direction = mass_l3::m5::parse_colregs_preferred_direction(
         colregs_constraint_->primary_preferred_direction);
+    // v3.1 acatos dispatch gate (memo §2.4 B6): consume M6 encounter_state +
+    // phase. Map by logical name (NOT numeric cast): M6 ENCOUNTER_CLEAR=0,
+    // ONSET=1, ACTIVE=2, RELEASE=3 vs tail_builder EncounterState {Active=0,
+    // Release=1, Clear=2, Onset=3} have DIFFERENT numeric values, so a cast
+    // would silently cross-map. Unknown values → has_m6_encounter_state=false
+    // (fail-closed in compute_acatos_feasibility C2).
+    inp.has_m6_encounter_state = true;
+    using ES = mass_l3::m5::tail_builder::EncounterState;
+    switch (colregs_constraint_->encounter_state) {
+      case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_CLEAR:
+        inp.colregs_encounter_state = ES::Clear; break;
+      case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ONSET:
+        inp.colregs_encounter_state = ES::Onset; break;
+      case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_ACTIVE:
+        inp.colregs_encounter_state = ES::Active; break;
+      case l3_msgs::msg::COLREGsConstraint::ENCOUNTER_RELEASE:
+        inp.colregs_encounter_state = ES::Release; break;
+      default:
+        // Unknown / future enum value → fail-closed (no M6 data this cycle).
+        inp.has_m6_encounter_state = false;
+        break;
+    }
+    inp.colregs_phase = colregs_constraint_->phase;
     for (const auto& rule : colregs_constraint_->active_rules) {
       const auto rule_id = static_cast<std::uint8_t>(rule.rule_id);
       const bool planner_visible = rule_id == 13u || rule_id == 14u || rule_id == 15u
@@ -624,6 +750,34 @@ MidMpcInput MidMpcNode::assemble_input_()
     }
   }
 
+  // L0-B sanity check (GNC Q3, M4-contract research agent_b2f04b59):
+  // heading_box_reachable_from_psi0_deg is a DIRECTION-AWARE magnitude (always
+  // ≥0, computed on the pref_dir side by M4 compute_heading_box_reachability).
+  // The value itself carries NO sign (can't infer Starboard vs Port from it).
+  // M4 contract guarantees: when pref_dir ∈ {Starboard, Port} (lateral active),
+  // box_reach > 0 means the box geometry allows ≥ box_reach degrees of turn on
+  // the pref_dir side. A consistency check we CAN do: if lateral active AND
+  // box_reach > 0, pref_dir MUST be Starboard or Port (not Hold/ReduceSpeed) —
+  // otherwise the M4 publish is internally inconsistent.
+  // We do NOT attempt to reverse-infer direction from the scalar value.
+  // Risk note: M4's apply_primary_risk_guidance may override direction to
+  // ReduceSpeed AFTER computing reachability — but in that case M5's
+  // direction_disabled path makes the reachability schedule a no-op, so the
+  // inconsistency is benign (research confirmed). This assert catches only
+  // gross contract violations (e.g. box_reach > 0 with Hold would mean M4
+  // published a nonzero lateral reachability for a non-lateral behavior).
+  if (inp.constraints.heading_box_reachable_from_psi0_deg > 0.0
+      && inp.colregs_conflict_active
+      && inp.colregs_preferred_direction != ColregsPreferredDirection::Starboard
+      && inp.colregs_preferred_direction != ColregsPreferredDirection::Port) {
+    spdlog::warn("[M5][MidMPC][L0] box_reach={:.1f} deg > 0 but pref_dir={} (not "
+                 "Starboard/Port) — M4 contract inconsistency; reachability will "
+                 "be ignored (direction_disabled path). degraded flag set.",
+                 inp.constraints.heading_box_reachable_from_psi0_deg,
+                 static_cast<int>(inp.colregs_preferred_direction));
+    inp.degradation.reachability_degraded = true;
+  }
+
   // Dynamically adjust CPA safe distance based on COLREGs constraint.
   // Only the SOFT colreg-barrier cpa_safe is bumped here; J_colreg's range-ramp
   // weight (mid_mpc_nlp_formulation build_colreg_cost_) is the correct dynamic
@@ -638,7 +792,7 @@ MidMpcInput MidMpcNode::assemble_input_()
   // Hard CPA floor is the un-bumped ODD CPA safe (1852), NOT the cost-scaled
   // cpa_safe above. compile_cpa_distance reads cpa_hard_m; the 2500 bump is for
   // the SOFT colreg barrier only (Bug C deep, RC-C; spec §L84).
-  inp.constraints.cpa_hard_m       = kCpaSafeFallback_m;
+	  inp.constraints.cpa_hard_m       = cpa_hard_m_;
   // v2.1 §4.5: terminal lateral feasibility band packed from the formulation
   // Config so accept_tail_gate (which receives MidMpcInput only) can enforce
   // the band the NLP softened terminal rows no longer hard-enforce.
@@ -727,9 +881,23 @@ MidMpcInput MidMpcNode::assemble_input_()
 
   const bool has_speed = speed_profile_ != nullptr
       && !speed_profile_->target_speeds_kn.empty();
-  inp.planned_speed_mps = has_speed
-      ? speed_profile_->target_speeds_kn[0] * units::kMsPerKn
-      : kDefaultPlannedSpeed_mps;
+  // L0-A guard: planned_speed from L2 speed_profile. Invalid (non-finite,
+  // negative) → fallback kDefaultPlannedSpeed + degraded.
+  if (has_speed) {
+    const double planned_raw_mps =
+        speed_profile_->target_speeds_kn[0] * units::kMsPerKn;
+    if (!std::isfinite(planned_raw_mps) || planned_raw_mps < 0.0) {
+      spdlog::warn("[M5][MidMPC][L0] non-finite/negative planned_speed_kn={}; "
+                   "fallback {:.2f} m/s + degraded",
+                   speed_profile_->target_speeds_kn[0], kDefaultPlannedSpeed_mps);
+      inp.planned_speed_mps = kDefaultPlannedSpeed_mps;
+      inp.degradation.planned_speed_degraded = true;
+    } else {
+      inp.planned_speed_mps = planned_raw_mps;
+    }
+  } else {
+    inp.planned_speed_mps = kDefaultPlannedSpeed_mps;
+  }
 
   // Fix F/G (plan↔exec ROT alignment, 2026-07-03): the NLP ROT constraint must
   // respect the GNC execution yaw cap, not the vessel's physical ROT limit.
@@ -1218,6 +1386,46 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
   // green" (σ always active) from "genuine fix" (σ zero except close-range).
   char slack_buf[32];
   std::snprintf(slack_buf, sizeof(slack_buf), "%.3f", sol.cpa_slack);
+
+  // v3.1 §7.6 F4 ASDR dispatch audit trail. acatos dispatch gate decision
+  // payload + cumulative counters. Free-form JSON extension of decision_json
+  // (does NOT change the ASDR msg schema). When M5_USE_ACADOS is off the
+  // dispatch gate does not exist; emit "nlp_backend":"ipopt" + zeroed counters
+  // so the audit shape stays stable across builds.
+  std::string nlp_backend = "ipopt";
+  std::string dispatch_reason = "no_acatos_backend";
+  std::string c2_state = "NO_M6";
+  std::string c1_pass_str = "false";
+  char c3_gap_buf[32];
+  char c4_r_reach_buf[32];
+  char c5_align_buf[32];
+  std::snprintf(c3_gap_buf, sizeof(c3_gap_buf), "%.1f", 0.0);
+  std::snprintf(c4_r_reach_buf, sizeof(c4_r_reach_buf), "%.2f", 0.0);
+  std::snprintf(c5_align_buf, sizeof(c5_align_buf), "%.3f", 0.0);
+  int64_t acatos_dispatch_count = 0;
+  int64_t fallback_ipopt_count = 0;
+  int64_t reject_c1 = 0, reject_c2 = 0, reject_c3 = 0, reject_c4 = 0, reject_c5 = 0;
+  int64_t warm_up_failed = 0;
+#ifdef M5_USE_ACADOS
+  {
+    nlp_backend = solver_.last_nlp_backend();
+    const auto& d = solver_.last_dispatch_decision();
+    dispatch_reason = d.reason;
+    c2_state = d.c2_state;
+    c1_pass_str = d.c1_pass ? "true" : "false";
+    std::snprintf(c3_gap_buf, sizeof(c3_gap_buf), "%.1f", d.c3_gap_h_m);
+    std::snprintf(c4_r_reach_buf, sizeof(c4_r_reach_buf), "%.2f", d.c4_r_reach);
+    std::snprintf(c5_align_buf, sizeof(c5_align_buf), "%.3f", d.c5_align_sin);
+    acatos_dispatch_count = solver_.acatos_dispatch_count();
+    fallback_ipopt_count = solver_.fallback_ipopt_count();
+    reject_c1 = solver_.reject_count_for_reason("c1_ample_time_fail");
+    reject_c2 = solver_.reject_count_for_reason("c2_active");
+    reject_c3 = solver_.reject_count_for_reason("c3_gap_exceed");
+    reject_c4 = solver_.reject_count_for_reason("c4_rot_reach");
+    reject_c5 = solver_.reject_count_for_reason("c5_aligned");
+    warm_up_failed = solver_.reject_count_for_reason("warm_up_failed");
+  }
+#endif
   const std::string json =
       std::string("{\"status\":\"") + plan.status
       + "\",\"planner_health\":\"" + planner_health
@@ -1231,6 +1439,23 @@ void MidMpcNode::publish_outputs_(const MidMpcSolution& sol,
       // P3: per-target ξ breakdown for observability/CCS certification trace.
       // Array of 16 floats; empty-target slots are 0.0.
       + ",\"cpa_slack_per_target\":" + assemble_per_target_slack_json(sol)
+      // v3.1 §7.6 F4 ASDR dispatch audit trail (acatos dispatch gate decision
+      // + cumulative counters). Free-form JSON; ASDR msg schema unchanged.
+      + ",\"nlp_backend\":\"" + nlp_backend + "\""
+      + ",\"dispatch_reason\":\"" + dispatch_reason + "\""
+      + ",\"c1_pass\":" + c1_pass_str
+      + ",\"c2_state\":\"" + c2_state + "\""
+      + ",\"c3_gap_h_m\":" + c3_gap_buf
+      + ",\"c4_r_reach\":" + c4_r_reach_buf
+      + ",\"c5_align_sin\":" + c5_align_buf
+      + ",\"acatos_dispatch_count\":" + std::to_string(acatos_dispatch_count)
+      + ",\"fallback_ipopt_count\":" + std::to_string(fallback_ipopt_count)
+      + ",\"reject_c1_count\":" + std::to_string(reject_c1)
+      + ",\"reject_c2_count\":" + std::to_string(reject_c2)
+      + ",\"reject_c3_count\":" + std::to_string(reject_c3)
+      + ",\"reject_c4_count\":" + std::to_string(reject_c4)
+      + ",\"reject_c5_count\":" + std::to_string(reject_c5)
+      + ",\"warm_up_failed_count\":" + std::to_string(warm_up_failed)
       + "}";
 
   l3_msgs::msg::ASDRRecord record;
@@ -1639,8 +1864,8 @@ void MidMpcNode::publish_committed_route_(
 	        risk_ctx.candidate_terminal_cpa_m =
 	            mass_l3::m5::trajectory_terminal_state_cpa_m(sol, *primary_tgt);
 	      }
-	      if (committed_route_manager_.try_revise(
-	              committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx),
+		      if (committed_route_manager_.try_revise(
+		              committed_candidate_from_plan(plan, !plan.nlp_tail_gate_failed, (now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s)).seconds(), risk_ctx, cpa_hard_m_),
 	              now.seconds(),
 	              static_cast<std::uint32_t>(solver_.consecutive_failures()))) {
 	        optimized_committed = true;

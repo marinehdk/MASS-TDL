@@ -19,6 +19,7 @@
 #include <Eigen/Dense>
 
 #include "m5_tactical_planner/common/units.hpp"
+#include "m5_tactical_planner/tail_builder/tail_builder.hpp"  // v3.1 B6: EncounterState enum reuse
 #include "l3_msgs/msg/avoidance_plan.hpp"
 
 namespace mass_l3::m5 {
@@ -232,6 +233,23 @@ struct MidMpcInput {
   ColregsPreferredDirection colregs_preferred_direction{ColregsPreferredDirection::Hold};
   double colregs_min_alteration_rad{0.0};
 
+  // v3.1 acatos dispatch gate (memo 2026-07-19-m5-acados-dispatch-gate-v3-event-
+  // based-design.md §2.4 B6): M6 encounter lifecycle consumed by
+  // MidMpcSolver::compute_acatos_feasibility (C2 criterion). These are INTERNAL
+  // MidMpcInput fields populated from the existing M6 COLREGsConstraint msg; they
+  // do NOT change the ROS2 wire format (M6 already publishes these, M5 previously
+  // ignored them).
+  //
+  // B6 rationale: reuse tail_builder::EncounterState (single source of truth) +
+  // a bool flag to avoid sentinel-vs-RELEASE=3 collision (M7 F-I1). The enum
+  // numeric values are DIFFERENT from M6 ENCOUNTER_* constants (M6: CLEAR=0,
+  // ONSET=1, ACTIVE=2, RELEASE=3; tail_builder: Active=0, Release=1, Clear=2,
+  // Onset=3), so mid_mpc_node::assemble_input_ MUST map by logical name via the
+  // switch case in memo §2.4, never by raw numeric cast.
+  tail_builder::EncounterState colregs_encounter_state{tail_builder::EncounterState::Clear};
+  bool has_m6_encounter_state{false};  // false until first M6 msg received (fail-closed)
+  std::string colregs_phase;           // "T_standOn" | "T_act" | "T_postAvoid" (M6 phase string)
+
   // [TBD-HAZID] planned_speed_mps: from L2 SpeedProfile; default 5.0 m/s ≈ 9.7 kn.
   // Calibrate per vessel service speed profile.
   double planned_speed_mps{5.0};
@@ -259,6 +277,39 @@ struct MidMpcInput {
   double own_lon_deg{0.0};
 
   std::int64_t stamp_ns{0};  // cycle start [nanoseconds since epoch]
+
+  // ── L0 input degradation tracking (ARCH-DECISION-03, 2026-07-20) ──────────
+  // When assemble_input_ detects an invalid/abnormal upstream value (NaN, Inf,
+  // negative, out-of-range), it applies a fallback AND sets the corresponding
+  // flag here. This lets L4/L5 reason about solution trustworthiness and lets
+  // LX trace root cause (which upstream field went bad this cycle).
+  // Design rule: NEVER silently substitute — always mark degraded so downstream
+  // can distinguish "real input" from "fallback". See L0 grilling conclusion
+  // (docs/superpowers/design-logs/2026-07-20-l0-grilling-conclusion.md §2 L0-A).
+  struct InputDegradation {
+    // Bitmask of degraded fields. Each bit = one upstream source went bad.
+    // Using individual bools (not std::bitset) to keep the struct POD and
+    // trivially serializable for diagnostic capture.
+    bool own_psi_degraded{false};       // M2 own_ship heading NaN/Inf
+    bool own_u_degraded{false};         // M2 own_ship sog negative/NaN
+    bool target_degraded{false};        // M2 any target lat/lon/sog invalid
+    bool speed_box_degraded{false};     // M4 speed_min/max invalid or max<min
+    bool reachability_degraded{false};  // M4 rot_step/min_alt/earliest_k invalid
+    bool planned_speed_degraded{false}; // L2 speed_profile invalid
+
+    // Human-readable list of which fields were substituted (for rationale /
+    // LX X1 snapshot). Cleared at the start of each assemble_input_ cycle.
+    std::string summary() const;
+    bool any() const {
+      return own_psi_degraded || own_u_degraded || target_degraded
+          || speed_box_degraded || reachability_degraded || planned_speed_degraded;
+    }
+    void reset() {
+      own_psi_degraded = own_u_degraded = target_degraded = false;
+      speed_box_degraded = reachability_degraded = planned_speed_degraded = false;
+    }
+  };
+  InputDegradation degradation;
 };
 
 // v2.2 §4.7 (D2): speed-gap feasibility check. Free function so the dispatch
@@ -298,6 +349,20 @@ inline void synchronize_mid_mpc_constraint_context(MidMpcInput& input) {
   }
   input.constraints.targets = input.targets;
   input.constraints.own_ship_psi_rad = input.own_ship.psi_rad;
+}
+
+// L0 InputDegradation::summary() — builds a human-readable list of which
+// upstream fields were substituted with fallbacks this cycle. Used by
+// MidMpcSolution.rationale and LX X1 snapshot for root-cause tracing.
+inline std::string MidMpcInput::InputDegradation::summary() const {
+  std::string out;
+  if (own_psi_degraded)       out += "own_psi ";
+  if (own_u_degraded)         out += "own_u ";
+  if (target_degraded)        out += "target ";
+  if (speed_box_degraded)     out += "speed_box ";
+  if (reachability_degraded)  out += "reachability ";
+  if (planned_speed_degraded) out += "planned_speed ";
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -493,6 +558,45 @@ inline bool is_m4_fallback_rationale(const std::string& rationale) {
   return rationale.find("infeasible fallback") != std::string::npos
       || rationale.find("Failsafe") != std::string::npos
       || rationale.find("geometric fallback") != std::string::npos;
+}
+
+// L0-A: speed box validation helper. Returns (speed_min_mps, speed_max_mps).
+// Invalid/non-finite/negative values or max<min degrade to [0, nominal] + flag.
+// M4 fallback rationale triggers nominal substitution (breaks feedback loop).
+inline std::pair<double, double> validate_speed_box(
+    double speed_min_kn, double speed_max_kn,
+    double nominal_speed_kn,
+    const std::string& m4_rationale,
+    MidMpcInput::InputDegradation& deg) {
+  double speed_min_mps = speed_min_kn * units::kMsPerKn;
+  double speed_max_raw = speed_max_kn;
+
+  // R3 fix: M4 fallback → use nominal speed (not current SOG).
+  if (is_m4_fallback_rationale(m4_rationale)) {
+    speed_max_raw = nominal_speed_kn;
+  }
+
+  const bool min_bad = !std::isfinite(speed_min_mps) || speed_min_mps < 0.0;
+  const bool max_bad = !std::isfinite(speed_max_raw) || speed_max_raw <= 0.0;
+  const double speed_max_mps = speed_max_raw * units::kMsPerKn;
+  const bool max_lt_min = !min_bad && !max_bad && (speed_max_mps < speed_min_mps);
+  if (min_bad || max_bad || max_lt_min) {
+    deg.speed_box_degraded = true;
+    return {0.0, nominal_speed_kn * units::kMsPerKn};
+  }
+  return {speed_min_mps, speed_max_mps};
+}
+
+// L0-A: earliest_min_alt_k validation helper. Returns validated k, or 0 on
+// out-of-range (degrade to v2.1 ROT-only sentinel).
+inline double validate_earliest_min_alt_k(double earliest_k, int32_t n_horizon,
+                                           MidMpcInput::InputDegradation& deg) {
+  if (!std::isfinite(earliest_k) || earliest_k < 0.0
+      || earliest_k > static_cast<double>(n_horizon)) {
+    deg.reachability_degraded = true;
+    return 0.0;
+  }
+  return earliest_k;
 }
 
 inline double geometric_fallback_target_speed_kn(
