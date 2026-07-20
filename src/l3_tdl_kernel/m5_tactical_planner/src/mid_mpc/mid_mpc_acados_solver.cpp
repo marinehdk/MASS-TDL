@@ -889,19 +889,20 @@ double steady_state_n_for_u(double u_mps) {
 // these into MidMpcSolution for ASDR/SAT transparency. The hard check itself is
 // unaffected — this is pure observability, NOT a new constraint.
 //
-// GNC review C2 (2026-07-20): d_min covers ONLY suffix stages (k >= prefix_K).
-// Prefix-stage CPA rows are relaxed to ±kUhInf by build_stage_row_bounds when
-// prefix_stage=true, and the `if (is_relaxed(lo, hi)) continue` guard at the
-// top of the row loop skips them BEFORE the d_min fold-in block. This means
-// soft_aspiration_d_min_m / soft_aspiration_violation_m reflect only the
-// maneuverable suffix trajectory, not the frozen committed prefix geometry.
-// Rationale: prefix geometry is already tracked by the committed_route field
-// (L4 consumes it separately), so double-counting prefix CPA in this telemetry
-// would mix "frozen past" with "planned future" semantics. If the frozen
-// prefix itself is the closest-to-target segment, soft_aspiration_violation_m
-// will UNDERREPORT the true soft-band intrusion — L4/M7 must consult the
-// committed prefix witness (L1b DP-04 D1, SC-04) for prefix-stage CPA audit.
-// In L1a test scope (prefix_active_k=0), this gap never triggers.
+	// L2 fix (2026-07-20): d_min covers ALL stages including softened CPA rows
+	// (cpa_soft=true). The d_min fold-in block runs BEFORE the is_relaxed guard
+	// so it populates the minimum CPA distance over the entire horizon regardless
+	// of hardening state. This is correct because d_min is a geometric measurement
+	// (nearest approach distance), not a constraint check — it should reflect the
+	// trajectory's actual CPA to each target irrespective of whether the CPA
+	// constraint is active or softened at that stage.
+	//
+	// Rationale: prefix geometry is tracked separately by the committed_route
+	// field (L4 consumes it independently). Including softened/prefix CPA rows
+	// in d_min means the telemetry accurately reports the closest approach even
+	// when the solver is still maneuvering (early stages) or the prefix is frozen.
+	// L4/M7 can cross-check against the committed prefix witness (L1b DP-04 D1,
+	// SC-04) for a prefix-specific audit if needed.
 //
 // The check is INDEPENDENT of the solver's internal residual bookkeeping: it
 // rebuilds h from the published trajectory + the packed parameters and applies
@@ -1023,42 +1024,48 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
                      "finite", k, r, hv);
         return false;
       }
-      // Relaxed row (double-disabled) -> always satisfied.
-      if (is_relaxed(lo, hi)) continue;
+	      // FB-2 telemetry: fold d_kt into d_min for real CPA rows (t < n_t).
+	      // Runs BEFORE the is_relaxed guard so this telemetry is populated even
+	      // when the CPA row is softened (cpa_soft=true or prefix_stage=true).
+	      // The d_min_over_horizon is a geometric measurement (minimum distance
+	      // from any solved trajectory point to any real target), not a constraint
+	      // check — it should reflect the minimum CPA distance over ALL stages,
+	      // regardless of hardening state. Without this fix, softened CPA rows
+	      // are skipped and d_min_over_horizon sees only the terminal stage (k=N),
+	      // producing artificially large values (e.g. 6849m instead of ~2100m for
+	      // a target at y=2100m). The CPA residual h = dx^2+dy^2 - cpa_hard^2,
+	      // so d_kt = sqrt(hv + cpa_hard^2). cpa_hard is read from the global
+	      // param slot kAcadosGIdxCpaHard (1852 fixed).
+	      if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
+	        const std::size_t cpa_hard_idx =
+	            static_cast<std::size_t>(kAcadosGIdxCpaHard);
+	        if (cpa_hard_idx < g.size()) {
+	          const double cpa_hard = g[cpa_hard_idx];
+	          const double sum = hv + cpa_hard * cpa_hard;  // = dx^2+dy^2
+	          if (sum > 0.0 && std::isfinite(sum)) {
+	            const double d_kt = std::sqrt(sum);
+	            if (d_kt < d_min_over_horizon) {
+	              d_min_over_horizon = d_kt;
+	            }
+	          }
+	        }
+	      }
 
-      // Step5 方案 B: CPA rows are TRUE hard (nsh=0, no slack). The effective
-      // lower bound is `lo` directly (no xi subtraction). The legacy slack
-      // subtraction (eff_lo = lo - sl_vec[t]) is retained ONLY for the stale
-      // pre-codegen header transition (kAcadosNsh > 0); once codegen re-runs
-      // with nsh=0, this branch is dead and eff_lo == lo.
-      //
-      // FB-2 telemetry: for real CPA rows (t < n_t), compute the actual
-      // stage-target distance d_kt = sqrt(dx^2+dy^2) and fold into
-      // d_min_over_horizon. The CPA residual h = dx^2+dy^2 - cpa_hard^2, so
-      // dx^2+dy^2 = h + cpa_hard^2; d_kt = sqrt(h + cpa_hard^2). cpa_hard is
-      // read from the global param slot kAcadosGIdxCpaHard (1852 fixed).
-      double eff_lo = lo;
-      if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
-        const int t = r - kRowCpaBase;
-        if (kAcadosNsh > 0 && t < kAcadosNsh) {
-          eff_lo = lo - sl_vec[t];  // legacy soft (dead under nsh=0)
-        }
-        // FB-2: fold d_kt into d_min (only when cpa_hard slot is populated).
-        // Step5 方案 B code-review: use the named slot constant directly
-        // (kAcadosGIdxCpaHard == kParamDimGlobal - 1 == 154) for clarity.
-        const std::size_t cpa_hard_idx =
-            static_cast<std::size_t>(kAcadosGIdxCpaHard);
-        if (cpa_hard_idx < g.size()) {
-          const double cpa_hard = g[cpa_hard_idx];
-          const double sum = hv + cpa_hard * cpa_hard;  // = dx^2+dy^2
-          if (sum > 0.0 && std::isfinite(sum)) {
-            const double d_kt = std::sqrt(sum);
-            if (d_kt < d_min_over_horizon) {
-              d_min_over_horizon = d_kt;
-            }
-          }
-        }
-      }
+	      // Relaxed row (double-disabled) -> always satisfied.
+	      if (is_relaxed(lo, hi)) continue;
+
+	      // Step5 方案 B: CPA rows are TRUE hard (nsh=0, no slack). The effective
+	      // lower bound is `lo` directly (no xi subtraction). The legacy slack
+	      // subtraction (eff_lo = lo - sl_vec[t]) is retained ONLY for the stale
+	      // pre-codegen header transition (kAcadosNsh > 0); once codegen re-runs
+	      // with nsh=0, this branch is dead and eff_lo == lo.
+	      double eff_lo = lo;
+	      if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
+	        const int t = r - kRowCpaBase;
+	        if (kAcadosNsh > 0 && t < kAcadosNsh) {
+	          eff_lo = lo - sl_vec[t];  // legacy soft (dead under nsh=0)
+	        }
+	      }
 
       // The actual bound check.
       if (hv < eff_lo - kBoxTol || hv > hi + kBoxTol) {
@@ -1465,7 +1472,7 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
         std::abs(spd_min - kDefaultSpdMin) > 1e-9 ||
         std::abs(spd_max - kDefaultSpdMax) > 1e-9 ||
         std::abs(rot_max - kDefaultRotMax) > 1e-9) {
-      // Heading wrap guard (L1b will add k_head schedule).
+      // Heading wrap guard.
       const bool hdg_valid = std::isfinite(hdg_min) && std::isfinite(hdg_max)
                           && hdg_min < hdg_max;
       const double use_hdg_min = hdg_valid ? hdg_min : kDefaultHdgMin;
@@ -1473,9 +1480,20 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
       const double use_spd_min = std::isfinite(spd_min) ? spd_min : kDefaultSpdMin;
       const double use_spd_max = std::isfinite(spd_max) ? spd_max : kDefaultSpdMax;
       const double use_rot_max = std::isfinite(rot_max) ? std::abs(rot_max) : kDefaultRotMax;
+      // L2 heading/ROT schedule separation (DP-02): heading uses the reachability
+      // schedule (k_head_earliest). Before k_head_earliest, heading stays at the
+      // codegen default ±π because the ship has not yet turned to the M4 heading
+      // box. ROT and speed are ALWAYS hard-bound (physical limits, not behavior
+      // schedule) — they apply from stage 1 regardless of k_head_earliest.
+      const bool hdg_differs = (std::abs(hdg_min - kDefaultHdgMin) > 1e-9 ||
+                                std::abs(hdg_max - kDefaultHdgMax) > 1e-9);
       for (int k = 1; k <= kAcadosN; ++k) {
-        double lbx[kAcadosNx] = {-kUhInf, -kUhInf, use_hdg_min, -use_rot_max, use_spd_min};
-        double ubx[kAcadosNx] = {kUhInf,  kUhInf,  use_hdg_max,  use_rot_max, use_spd_max};
+        const double stage_hdg_min = (hdg_differs && k >= sched.k_head_earliest)
+                                         ? use_hdg_min : kDefaultHdgMin;
+        const double stage_hdg_max = (hdg_differs && k >= sched.k_head_earliest)
+                                         ? use_hdg_max : kDefaultHdgMax;
+        double lbx[kAcadosNx] = {-kUhInf, -kUhInf, stage_hdg_min, -use_rot_max, use_spd_min};
+        double ubx[kAcadosNx] = {kUhInf,  kUhInf,  stage_hdg_max,  use_rot_max, use_spd_max};
         ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k, "lbx", lbx);
         ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k, "ubx", ubx);
       }

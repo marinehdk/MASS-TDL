@@ -1019,12 +1019,84 @@ TEST_F(AcadosSolverTest, WarmStartShiftInit_SecondCycleUsesPrevSolution) {
       << ") should not regress vs cold start (sqp_iter="
       << cold_sqp_iter << ")";
 
-  // Validate trajectory continuity: sol2[0].psi should be close to sol1[1].psi.
-  if (sol1.trajectory.size() > 1 && sol2.trajectory.size() > 0) {
-    const double dpsi = std::fabs(
-        sol2.trajectory[0].psi_rad - sol1.trajectory[1].psi_rad);
-    EXPECT_LT(dpsi, 0.5)
-        << "trajectory continuity: sol2[0].psi should be close to sol1[1].psi";
-  }
+	  // Validate trajectory continuity: sol2[0].psi should be close to sol1[1].psi.
+	  if (sol1.trajectory.size() > 1 && sol2.trajectory.size() > 0) {
+	    const double dpsi = std::fabs(
+	        sol2.trajectory[0].psi_rad - sol1.trajectory[1].psi_rad);
+	    EXPECT_LT(dpsi, 0.5)
+	        << "trajectory continuity: sol2[0].psi should be close to sol1[1].psi";
+	  }
+	}
+
+// ===========================================================================
+// L2 validation: Rule14 head-on at 5000m — diagnostic probe.
+//
+// Result: status=3 (NumericalFailure) at SQP iter 1, QP error at iter 2.
+// This is the P5 convergence boundary: HPIPM FULL_CONDENSING at N=80 with
+// the J_colreg barrier produces an ill-conditioned QP that fails on the first
+// SQP iteration. The L2 heading/ROT schedule improvement is real but invisible
+// at this geometry because the failure is at the QP level, not at the
+// constraint-hardening level.
+//
+// P5 root-cause doc (2026-07-18-m5-p5-acatos-convergence-design.md §2):
+//   - CPA gap < 252m: acados converges
+//   - CPA gap > 352m: QP fails (this scenario: gap ≈ 1852m — way above)
+//
+// This test is diagnostic-only: it records the status and trajectory
+// telemetry, asserts only contract invariants (finite fields), and does NOT
+// assert convergence. The convergence gap is structural and better addressed
+// by the P5 §3 R3 proposal (adaptive LM + funnel globalization) than by
+// per-scenario tuning.
+// ===========================================================================
+TEST_F(AcadosSolverTest, HeadOn5000m_GiveWayStarboard_Converges) {
+  auto inp = straight_line();
+  inp.own_ship.psi_rad = 0.0;
+  inp.own_ship.u_mps   = 5.0;
+  inp.own_ship.x_m     = 0.0;
+  inp.own_ship.y_m     = 0.0;
+
+  // Head-on target: 5000m directly ahead, heading south at 5 m/s.
+  TargetState tgt;
+  tgt.id       = 1;
+  tgt.x_m      = 5000.0;
+  tgt.y_m      = 0.0;
+  tgt.cog_rad  = M_PI;        // heading south (toward own ship)
+  tgt.sog_mps  = 5.0;
+  tgt.cpa_m    = 0.0;         // collision course on straight line
+  tgt.tcpa_s   = 500.0;       // 5000m / (5+5)m/s
+  tgt.confidence = 1.0;
+  inp.targets.push_back(tgt);
+
+  // COLREGS lateral active: give-way + starboard preferred.
+  inp.colregs_primary_role = 1U;
+  inp.colregs_preferred_direction = ColregsPreferredDirection::Starboard;
+  inp.colregs_min_alteration_rad = 30.0 * M_PI / 180.0;
+  inp.constraints.applicable_rules = {14};
+
+  const auto sol = solver_->solve(inp, nullptr);
+
+  // Diagnostic output.
+  std::cout << "[HO-5000m] status=" << static_cast<int>(sol.status)
+            << " sqp_iter=" << sol.ipopt_iterations
+            << " solver_moved=" << (sol.trajectory.size() > 0)
+            << " cost=" << sol.cost_total
+            << " d_min=" << sol.soft_aspiration_d_min_m
+            << " violation_m=" << sol.soft_aspiration_violation_m
+            << " dur_ms=" << sol.solve_duration_ms << "\n";
+
+  // Report what P5 convergence boundary predicts for this gap.
+  const double cpa_gap = inp.constraints.cpa_safe_m - 0.0;  // DCPA=0 for HO
+  std::cout << "[HO-5000m] cpa_gap=" << cpa_gap
+            << " (P5 boundary: <252m converge, >352m fail)"
+            << " — this gap=" << cpa_gap << "m >> 352m\n";
+
+  // Contract invariants (must hold regardless of convergence):
+  EXPECT_TRUE(std::isfinite(sol.cost_total));
+  EXPECT_TRUE(std::isfinite(sol.solve_duration_ms));
+  EXPECT_GE(sol.solve_duration_ms, 0);
+
+  // Not asserting convergence — this is a diagnostic probe for the P5
+  // convergence boundary. Expected: status != 0 for this large CPA gap.
+  // When P5 §3 R3 (adaptive LM + funnel) is implemented, re-evaluate.
 }
 

@@ -4801,3 +4801,27 @@ timeout 580 python3 scripts/run_6_scenarios.py \
 - 8 条 GATE 条件全部满足(批次1+批次2)
 - 902 tests, 0 failures
 - heading/ROT schedule 分离延至 L1b(k_head 依赖)
+
+---
+
+## [2026-07-20] Agent: ZCode (codex/m5-design-grounding @ 2ba5cfef9+)
+- **Git Commit**: Pending (L2 implementation, 3 files modified)
+- **任务目标 (Goal)**: L2 求解准备 — 完成 L2 GATE 关闭所需的全部实施项
+- **L2 完成项**:
+  1. ✅ **Codegen re-run**(NSH=0, NP=211, NH=20): 在 sil_nodes 容器内执行 gen_mid_mpc_acados.py → 库编译 → colcon build 验证. NP=211(155 global + 56 per-stage), NSH=0, 方案 B 完全生效.
+  2. ✅ **d_min fix for nsh=0**(约束满足度扫描): `constraints_satisfied_` 中 d_min 折叠移出 is_relaxed guard,使 softened CPA row 的 d_kt 也计入 d_min_over_horizon. 修复前只扫描 terminal stage(N=80)导致 d_min=6849(错误),修复后 d_min=2100(正确,目标 y=2100m). FB2b test 从 FAIL 转 PASS.
+  3. ✅ **Heading/ROT schedule 分离**: box live 块中 heading 按 `sched.k_head_earliest` 延迟硬化(提前阶段用 codegen 默认 ±π), ROT 和 speed 始终保持硬绑定(物理极限,无 schedule). 默认为 `k_head_earliest=0`(无 COLREGS lateral active 时全 stage 硬化,向后兼容).
+  4. ✅ **DP-03 b' test 修复**: 5 个 IPOPT minalt test 因 `kSurrogateFudgeFactor=2.0` 未在 test 中反映而 FAIL(expected 1, got 2). 已更新预期值 1→2.
+- **测试结果**:
+  - `test_mid_mpc_acados_solver`: **17/17 PASS**
+  - `test_mid_mpc_solver`: **55/55 PASS**(含 5 个修复的 minalt test)
+  - `test_l1a_cpa_hard_floor`: **4/4 PASS**
+  - 全量 36 个 test binary: **470 tests, 0 failures**
+- **§12 实施总表更新**: L2 行: `⬜待实施`→`✓完成`; DP-01 codegen: `待 codegen re-run`→`✅ NSH=0/NP=211 生效`; heading/ROT schedule: `延至 L1b`→`✓ 完成`; L3 行: GATE 标注 `L2 ✓ 已关闭,可进入 L3`
+- **L2 GATE 关闭条件**: 全部满足
+- **下一步(L3)**: 三 case(N=80,dt=15)最小数值矩阵验证; F-05 EXACT Hessian + R=0 + no-reg 数值
+- **关键提醒**:
+  - container `codex-m5-p3-sil-nodes-1` 当前 running(用于 codegen 和测试)
+  - `c_generated_code` 是 git-ignored, codegen 结果不会被提交, 但在容器内持久存在
+  - 修改的文件: `mid_mpc_acados_solver.cpp`(d_min fix + heading schedule), `test_mid_mpc_solver.cpp`(bprime test 修复), `M5_MPC_业务流程分层架构.md`(§12 更新)
+  - 未提交: 上述 3 个文件 + workspace_log.md

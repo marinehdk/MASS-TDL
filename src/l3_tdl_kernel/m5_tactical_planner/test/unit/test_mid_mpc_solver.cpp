@@ -753,9 +753,10 @@ TEST_F(MidMpcNlpTest, DeriveMinaltKStarForRot4p7) {
   inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
   const RowBoundConfig cfg = derive_row_bound_config(inp, /*n_horizon=*/18, /*dt_s=*/5.0);
   ASSERT_FALSE(cfg.minalt_override_valid);
-  // rot_step = 0.0820*5 = 0.4105 rad; min_alt=0.5236
-  // k* = ceil(0.5236/0.4105) - 1 = ceil(1.275) - 1 = 2 - 1 = 1
-  EXPECT_EQ(cfg.minalt_hard_from_k, 1);
+	  // rot_step = 0.0820*5 = 0.4105 rad; min_alt=0.5236
+	  // DP-03 b' (VR-03): conservative bprime_rot_step = rot_step / 2.0 = 0.2053.
+	  // k* = ceil(0.5236/0.2053) - 1 = ceil(2.55) - 1 = 3 - 1 = 2
+	  EXPECT_EQ(cfg.minalt_hard_from_k, 2);
 }
 
 TEST_F(MidMpcNlpTest, DeriveCpaKCPAUsesTcpaMargin) {
@@ -977,11 +978,12 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKFallsBackWhenM4NotUpgraded) {
 
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
 
-  EXPECT_FALSE(cfg.minalt_box_infeasible);
-  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // v2.1 ROT-only
-}
+	  EXPECT_FALSE(cfg.minalt_box_infeasible);
+	  // DP-03 b': bprime_rot_step = rot_step / 2.0 → k_minalt = 2
+	  EXPECT_EQ(cfg.minalt_hard_from_k, 2);
+	}
 
-TEST_F(MidMpcNlpTest, MinaltHardFromKRotReachWhenBoxAllows) {
+	TEST_F(MidMpcNlpTest, MinaltHardFromKRotReachWhenBoxAllows) {
   MidMpcInput inp = make_base_input();
   inp.colregs_min_alteration_rad = 0.524;
   inp.rot_max_rad_s = 0.0820;
@@ -991,11 +993,12 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKRotReachWhenBoxAllows) {
 
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
 
-  EXPECT_FALSE(cfg.minalt_box_infeasible);
-  EXPECT_EQ(cfg.minalt_hard_from_k, 1);
-}
+	  EXPECT_FALSE(cfg.minalt_box_infeasible);
+	  // DP-03 b': bprime_rot_step = rot_step / 2.0 → k_minalt = 2
+	  EXPECT_EQ(cfg.minalt_hard_from_k, 2);
+	}
 
-TEST_F(MidMpcNlpTest, MinaltHardFromKBoxExactlyAtMinAltNotInfeasible) {
+	TEST_F(MidMpcNlpTest, MinaltHardFromKBoxExactlyAtMinAltNotInfeasible) {
   // v2.2 §4.6 boundary: box_reach == min_alt → strict <, not infeasible.
   // min_alt 用 kMinAlt30rad (= 30°·π/180) 使与 box_reach 30°·kRadPerDeg 严格相等,
   // 否则字面 0.524 > 0.5236 会使 strict < 误触发 infeasible (浮点语义).
@@ -1006,11 +1009,12 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKBoxExactlyAtMinAltNotInfeasible) {
   inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
   inp.constraints.heading_box_reachable_from_psi0_deg = 30.0;  // == min_alt 边界
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
-  EXPECT_FALSE(cfg.minalt_box_infeasible);
-  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // k_minalt_rot, 非 N
-}
+	  EXPECT_FALSE(cfg.minalt_box_infeasible);
+	  // DP-03 b': bprime_rot_step = rot_step / 2.0 → k_minalt = 2 (非 N)
+	  EXPECT_EQ(cfg.minalt_hard_from_k, 2);
+	}
 
-TEST_F(MidMpcNlpTest, MinaltHardFromKBoxWithinEpsilonNotInfeasible) {
+	TEST_F(MidMpcNlpTest, MinaltHardFromKBoxWithinEpsilonNotInfeasible) {
   // Codex β review 🟡4: epsilon tolerance (~0.005 rad ≈ 0.3°) absorbs M4/M5
   // float32(deg)→float64(rad) conversion noise. box_reach is just under min_alt
   // by less than epsilon → must NOT flag infeasible (would cause false INFEAS).
@@ -1022,12 +1026,13 @@ TEST_F(MidMpcNlpTest, MinaltHardFromKBoxWithinEpsilonNotInfeasible) {
   inp.colregs_preferred_direction = mass_l3::m5::ColregsPreferredDirection::Starboard;
   inp.constraints.heading_box_reachable_from_psi0_deg = 29.8;  // 0.0033 rad under min_alt
   const RowBoundConfig cfg = derive_row_bound_config(inp, 18, 5.0);
-  EXPECT_FALSE(cfg.minalt_box_infeasible);
-  EXPECT_EQ(cfg.minalt_hard_from_k, 1);  // within epsilon → ROT schedule
-}
+	  EXPECT_FALSE(cfg.minalt_box_infeasible);
+	  // DP-03 b': bprime_rot_step = rot_step / 2.0 → k_minalt = 2 (within epsilon → ROT schedule)
+	  EXPECT_EQ(cfg.minalt_hard_from_k, 2);
+	}
 
-// ===========================================================================
-// v2.2 §13.1: solver exposes last_minalt_box_infeasible() after solve() for the
+	// ===========================================================================
+	// v2.2 §13.1: solver exposes last_minalt_box_infeasible() after solve() for the
 // BC-MPC dispatch OR condition (Codex integration blocker 1). minalt_box can
 // trigger on the FIRST solve (consecutive=0), so it must be queryable without
 // relying on the consecutive-failure counter.
