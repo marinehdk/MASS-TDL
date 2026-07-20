@@ -183,20 +183,20 @@ RowBounds build_stage_row_bounds(int nh, bool lateral_active,
   // Prefix rows: equality [0,0] (pact_pre deactivates inside the expression).
   set_row_value(kRowPrefixPsi, 0.0, 0.0);
   set_row_value(kRowPrefixU,   0.0, 0.0);
-  // CPA rows [2..17]: one-sided >= 0 for the n_targets REAL targets; relaxed
-  // [-inf,+inf] for empty slots [n_targets..max_targets-1] (mirror IPOPT, which
-  // emits CPA rows only for real targets). Clamp n_targets to [0, kAcadosNt].
-  // I-4: For prefix stages (k<K), RELAX ALL CPA rows to [-inf,+inf]
-  // (colreg_prefix_softened semantics).
-  // Step5 方案 B: n_t/target-count is kAcadosNt (16), NOT kAcadosNsh (0 after
-  // codegen). These CPA rows are TRUE hard (nsh=0, no slack); the bound is
-  // one-sided >= 0 (residual = dx^2+dy^2-cpa_hard_m^2, lh=0).
+  // CPA rows [2..17]: three-phase hardening (item ② DP-07):
+  //   Phase 1 (commit, k < prefix_K):    CPA relaxed — prefix frozen geometry
+  //   Phase 2 (soften, k < k_cpa_suffix): CPA relaxed — allow solver to
+  //     maneuver out of prefix-exit CPA violation before hard floor
+  //   Phase 3 (hard,  k >= k_cpa_suffix): [0,+inf] — CPA floor enforced
+  // Empty target slots [n_targets..max_targets-1] are always relaxed
+  // (mirror IPOPT, which emits CPA rows only for real targets).
+  const bool cpa_soft = (prefix_stage || stage_K < sched.k_cpa_suffix);
   const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
   for (int t = 0; t < kAcadosNt; ++t) {
-    if (prefix_stage || t >= n_t) {
-      set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // relaxed
+    if (t >= n_t || cpa_soft) {
+      set_row_value(kRowCpaBase + t, -kUhInf, kUhInf);   // relaxed (phase 1 or 2)
     } else {
-      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // real target: >= 0 (hard)
+      set_row_value(kRowCpaBase + t, 0.0, kUhInf);       // hard floor (phase 3)
     }
   }
   // Direction / min_alt: deactivate unless lateral_active. Additionally,
@@ -373,12 +373,16 @@ ReachabilitySchedule compute_reachability_schedule(
         sched.k_head_latest = std::max(0, k_tcpa - kMarginStages);
 
         // ---------------------------------------------------------------------
-        // 4. k_cpa_suffix: CPA suffix-hard deadline.
-        //    CPA floor hardens at max(k_minalt, k_tcpa_margin).
-        //    The full compositing with prefix_K (commit→soften→harden three-phase)
-        //    is item ② (DP-07); here we compute the raw schedule only.
+        // 4. k_cpa_suffix: CPA suffix-hard deadline (item ② DP-07).
+        //    Three-phase: commit(k<prefix_K)→soften→hard(k>=k_cpa_suffix).
+        //    CPA floor hardens at max(k_minalt, k_head_earliest, k_tcpa):
+        //      - k_minalt: need min_alt rotation before CPA meaningful
+        //      - k_head_earliest: heading must be on preferred direction before
+        //        CPA can be enforced (BL-12 coupling)
+        //      - k_tcpa: TCPA-based deadline
         // ---------------------------------------------------------------------
-        sched.k_cpa_suffix = std::max(sched.k_minalt, k_tcpa);
+        sched.k_cpa_suffix = std::max(
+            {sched.k_minalt, sched.k_head_earliest, k_tcpa});
       } else {
         // All tcpa_s <= 0 (targets already past) → conservative all-hard.
         sched.k_cpa_suffix = 0;
