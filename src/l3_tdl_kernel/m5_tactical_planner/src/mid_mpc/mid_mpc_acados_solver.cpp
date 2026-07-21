@@ -31,6 +31,10 @@
 // COST (T4) read as the lateral-deviation origin.
 #include "m5_tactical_planner/mid_mpc/mid_mpc_per_stage_tb.hpp"
 
+// L4-T2: soft-aspiration telemetry free function (extracted geometry logic,
+// testable without acados).  Header-only inline; no link dep.
+#include "m5_tactical_planner/shared/soft_aspiration_telemetry.hpp"
+
 // CasADi (MX/Function) for the C1 status-4 constraint-satisfaction re-check
 // (T17 review-fix C1): the check recomputes the constraint residuals h(x,u,p)
 // from the SAME MX expression the acados codegen derives from
@@ -999,52 +1003,25 @@ void MidMpcAcadosSolver::compute_soft_aspiration_telemetry_(
     const std::vector<double>& target_y,
     int n_targets,
     const std::vector<double>& g) {
+  // Acados-specific guards: clamp target count, validate trajectory length.
   const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
-  // Guard: trajectory arrays must have at least kAcadosN+1 elements; if not,
-  // leave impl_ fields at current values (stale / 0) and return — this is a
-  // soft guard for the caller's contract, not a hard error.
   const std::size_t expected_len = static_cast<std::size_t>(kAcadosN + 1);
   if (px_traj.size() < expected_len || py_traj.size() < expected_len) {
-    return;
-  }
-  // Guard: target arrays must have at least n_t entries.
-  const std::size_t n_tu = static_cast<std::size_t>(n_t);
-  if (n_t == 0) {
-    impl_->last_soft_aspiration_d_min_m = 0.0;
-    impl_->last_soft_aspiration_violation_m = 0.0;
-    return;
-  }
-  if (target_x.size() < n_tu || target_y.size() < n_tu) {
-    return;
+    return;  // leave impl_ fields at current (stale / 0)
   }
 
-  double d_min_over_horizon = std::numeric_limits<double>::infinity();
-  for (int k = 0; k <= kAcadosN; ++k) {
-    const std::size_t kk = static_cast<std::size_t>(k);
-    for (int t = 0; t < n_t; ++t) {
-      const std::size_t tt = static_cast<std::size_t>(t);
-      const double dx = px_traj[kk] - target_x[tt];
-      const double dy = py_traj[kk] - target_y[tt];
-      const double d2 = dx * dx + dy * dy;
-      if (d2 > 0.0 && std::isfinite(d2)) {
-        const double d_kt = std::sqrt(d2);
-        if (d_kt < d_min_over_horizon) {
-          d_min_over_horizon = d_kt;
-        }
-      }
-    }
-  }
-
-  impl_->last_soft_aspiration_d_min_m =
-      std::isfinite(d_min_over_horizon) ? d_min_over_horizon : 0.0;
+  // Extract cpa_safe from global params (with fallback default).
   const std::size_t cpa_safe_idx =
       static_cast<std::size_t>(kAcadosGIdxCpaSafe);
   const double cpa_safe_val =
       (cpa_safe_idx < g.size()) ? g[cpa_safe_idx] : 1852.0;
-  impl_->last_soft_aspiration_violation_m =
-      std::isfinite(d_min_over_horizon)
-          ? std::max(0.0, cpa_safe_val - d_min_over_horizon)
-          : 0.0;
+
+  // Delegate to pure-geometry free function (L4-T2: testable without acados).
+  const auto telemetry = shared::compute_soft_aspiration_telemetry(
+      px_traj, py_traj, target_x, target_y, n_t, cpa_safe_val);
+
+  impl_->last_soft_aspiration_d_min_m = telemetry.d_min_m;
+  impl_->last_soft_aspiration_violation_m = telemetry.violation_m;
 }
 
 // The check is INDEPENDENT of the solver's internal residual bookkeeping: it

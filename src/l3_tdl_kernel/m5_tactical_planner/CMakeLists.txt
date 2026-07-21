@@ -612,6 +612,11 @@ if(BUILD_TESTING)
     )
 	  endif()
 	
+	  # ── L4-T2: soft-aspiration telemetry free function (no CasADi/acados) ──
+	  m5_add_gtest(test_soft_aspiration_telemetry
+	    test/unit/test_soft_aspiration_telemetry.cpp
+	  )
+	
 	  # ── L0 input guard tests (types.hpp helpers, no CasADi needed) ────────
 	  m5_add_gtest(test_l0_input_guards
 	    test/unit/test_l0_input_guards.cpp
