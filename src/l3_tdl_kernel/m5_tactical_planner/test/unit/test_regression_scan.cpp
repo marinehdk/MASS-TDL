@@ -22,6 +22,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -250,6 +251,30 @@ TEST(RegressionScanTest, Gap352_StatusDocumented) {
       << " status=" << static_cast<int>(sol.status);
   RecordProperty("gap352_raw", raw);
   RecordProperty("gap352_status", static_cast<int>(sol.status));
+}
+
+// ===========================================================================
+// S-T5: portable scan — independent capsule per gap point (authoritative).
+//        Each target_y gets a fresh MidMpcAcadosSolver, avoiding the shared-
+//        capsule SQP-state pollution that distorts the S-T1 8-point sweep.
+//        This matches the portable-scan methodology used for git bisect and
+//        is the authoritative convergence boundary measurement.
+// =========================================================================//
+TEST(RegressionScanTest, PortableScan_IndependentCapsulePerPoint) {
+  const std::vector<double> target_ys = {2400.0, 2100.0, 1900.0, 1852.0,
+                                         1800.0, 1700.0, 1600.0, 1500.0};
+  for (const double target_y : target_ys) {
+    MidMpcAcadosFormulation form;
+    form.build_symbolic_graph();
+    MidMpcAcadosSolver solver(form);
+    MidMpcInput inp = make_target_scenario(target_y);
+    const auto sol = solver.solve(inp, nullptr);
+    const int raw = solver.last_raw_status();
+    const int sqp = solver.last_sqp_iter();
+    const double gap = 1852.0 - target_y;
+    fprintf(stderr, "PORTABLE target_y=%.0f gap=%+.0f raw=%d status=%d sqp_iter=%d\n",
+            target_y, gap, raw, static_cast<int>(sol.status), sqp);
+  }
 }
 
 }  // namespace
