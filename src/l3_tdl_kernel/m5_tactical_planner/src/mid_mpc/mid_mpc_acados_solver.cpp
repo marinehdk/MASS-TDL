@@ -110,10 +110,10 @@ constexpr double kBoxTol = 1.0e-6;
 
 // Map the acados integer solver status to MidMpcSolution::Status. The mapping is
 // the F5 contract: status 0 = Converged; status 4 (QP error during refinement)
-// is tolerated (caller verifies solver-moved + constraints satisfied after the
-// fact); status 1 = max_iter (Timeout); status 2/3 = infeasible/numerical.
-// The full mapping is documented in the header; this helper does NOT auto-pass
-// status 4 — the caller applies the solver-moved gate before accepting it.
+// maps to NumericalFailure (VR-05: raw 4 NEVER maps to Converged — the caller
+// must check solver_moved + constraints_satisfied before accepting the trajectory
+// for fallback use); status 1 = max_iter (Timeout); status 2/3 = infeasible/numerical.
+// The full mapping is documented in the header.
 MidMpcSolution::Status map_acados_status(int status) {
   switch (status) {
     case 0:  return MidMpcSolution::Status::Converged;        // ACADOS_SUCCESS
@@ -125,6 +125,43 @@ MidMpcSolution::Status map_acados_status(int status) {
                                                               // re-maps to Converged
                                                               // iff solver-moved
     default: return MidMpcSolution::Status::NumericalFailure;
+  }
+}
+
+// L4-T3 (VR-05): public status contract functions for testability.
+MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status) {
+  switch (raw_status) {
+    case 0:  return MidMpcSolution::SolverStatus::Converged;
+    case 1:  return MidMpcSolution::SolverStatus::Timeout;
+    case 2:  return MidMpcSolution::SolverStatus::Infeasible;
+    case 3:  return MidMpcSolution::SolverStatus::NumericalFailure;
+    // VR-05: raw 4 is QpRecovered — NOT Converged. This is the contract the
+    // L4 tests assert. The caller (solve()) may further refine this to
+    // NumericalFailure if solver_moved is false or constraints are violated.
+    case 4:  return MidMpcSolution::SolverStatus::QpRecovered;
+    default: return MidMpcSolution::SolverStatus::NumericalFailure;
+  }
+}
+
+MidMpcSolution::Status solver_status_to_status(MidMpcSolution::SolverStatus ss) {
+  switch (ss) {
+    case MidMpcSolution::SolverStatus::Converged:
+      return MidMpcSolution::Status::Converged;
+    case MidMpcSolution::SolverStatus::QpRecovered:
+      // VR-05: QpRecovered NEVER maps to Converged. The backward-compatible
+      // status is NumericalFailure — downstream consumers that have NOT been
+      // updated to read solver_status will see a non-converged status, which
+      // triggers the existing fallback/degraded paths. This is fail-closed.
+      return MidMpcSolution::Status::NumericalFailure;
+    case MidMpcSolution::SolverStatus::Timeout:
+      return MidMpcSolution::Status::Timeout;
+    case MidMpcSolution::SolverStatus::Infeasible:
+      return MidMpcSolution::Status::Infeasible;
+    case MidMpcSolution::SolverStatus::NumericalFailure:
+      return MidMpcSolution::Status::NumericalFailure;
+    case MidMpcSolution::SolverStatus::NotInitialized:
+    default:
+      return MidMpcSolution::Status::NotInitialized;
   }
 }
 
@@ -1768,31 +1805,42 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
 
   // ---- Map acados status -> MidMpcSolution::Status (F5 contract). ----
   // status 0 -> Converged.
-  // status 4 tolerated ONLY when (a) solver_moved AND (b) constraints satisfied
-  //   (C1 T17 review-fix: the prior code checked only (a); a status-4 that
-  //   moved but violated a constraint — e.g. CPA hard floor breached — was
-  //   reported Converged and flowed to L4 unchallenged). Now both gates must
-  //   pass; otherwise the NumericalFailure from map_acados_status stands.
+  // status 4 is NEVER re-mapped to Converged (VR-05 L4-T3 fix, 2026-07-21).
+  //   The constraints_satisfied_ call still runs for diagnostic logging and
+  //   soft-aspiration telemetry, but the solver status stays NumericalFailure
+  //   (or QpRecovered in the layered solver_status field). A QP error during
+  //   refinement means stationarity and complementarity are UNVERIFIED —
+  //   mapping to Converged was a fail-open path that is now CLOSED.
   //   status 1 -> Timeout; status 2 -> Infeasible; status 3/other -> NumFailure.
   MidMpcSolution::Status mapped = map_acados_status(status);
   // Step5 方案 B (FB-2 telemetry remedy): constraints_satisfied_ computes the
   // soft-aspiration d_min + violation_m SIDE EFFECTS (lifted into Impl for
   // solve() to read into MidMpcSolution). For status=0 (Converged) the boolean
   // is unused but the d_min computation must still run so the telemetry is
-  // populated every cycle. For status=4 the boolean gates the re-map. Running
-  // the check on status=0 is an N-step cached MX eval (cheap, observability-
-  // only).  For status=1/2/3 (Timeout/Infeasible/NumFailure) the trajectory is
-  // unreliable for constraint checking, so skip constraints_satisfied_; however
-  // the d_min telemetry is already populated above (L4-T2: all-exit-path
-  // compute_soft_aspiration_telemetry_ call), so the operator still sees the
-  // d_min violation degree even when the solve failed.
+  // populated every cycle. For status=4 the boolean now gates diagnostic logging
+  // and solver_status assignment only — the backward-compatible status stays
+  // NumericalFailure (NEVER Converged). For status=1/2/3 (Timeout/Infeasible/
+  // NumFailure) the trajectory is unreliable for constraint checking, so skip
+  // constraints_satisfied_; however the d_min telemetry is already populated
+  // above (L4-T2: all-exit-path compute_soft_aspiration_telemetry_ call), so
+  // the operator still sees the d_min violation degree even when the solve failed.
   if (status == 0 || (status == 4 && solver_moved)) {
     const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets,
                                               input.prefix_active_k, sched);
     if (status == 4 && solver_moved) {
+      // VR-05: raw 4 MUST NEVER become Converged. The QP error during refinement
+      // means stationarity and complementarity are UNVERIFIED. Keep
+      // NumericalFailure in the backward-compatible status, but populate
+      // solver_status so downstream consumers that have been updated to read the
+      // layered status can distinguish QpRecovered (primal feasible, trajectory
+      // potentially useful for geometric fallback) from NumericalFailure (hard
+      // QP failure, trajectory unreliable).
       if (csat) {
-        mapped = MidMpcSolution::Status::Converged;
+        sol.solver_status = MidMpcSolution::SolverStatus::QpRecovered;
+        sol.rationale += (sol.rationale.empty() ? "" : "; ") +
+            std::string("QP recovered; primal feasible but stationarity/complementarity unverified");
       } else {
+        sol.solver_status = MidMpcSolution::SolverStatus::NumericalFailure;
         // Keep NumericalFailure: the solve moved but a constraint is violated.
         // Log which gate failed for telemetry (constraints_satisfied_ already
         // logged the offending row).
@@ -1805,6 +1853,36 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
         }
       }
     }
+  }
+  // ── L4-T3: populate solver_status for all raw status paths (VR-05). ────
+  // solver_status is the PRIMARY signal for solver health telemetry. It is set
+  // BEFORE the D1 witness / any_nan safety overrides so the safety layer can
+  // independently downgrade safety_status while preserving the original solver
+  // diagnosis. For status==4 paths with solver_moved, solver_status was set
+  // inside the block above (QpRecovered or NumericalFailure). For status==0
+  // (Converged), the path below sets Converged. All other raw values map via
+  // the switch. status==4 without solver_moved (solver did not move from seed)
+  // is treated as NumericalFailure — a QP error with no trajectory progress is
+  // not a recoverable state.
+  if (status == 0) {
+    sol.solver_status = MidMpcSolution::SolverStatus::Converged;
+  } else if (status == 1) {
+    sol.solver_status = MidMpcSolution::SolverStatus::Timeout;
+  } else if (status == 2) {
+    sol.solver_status = MidMpcSolution::SolverStatus::Infeasible;
+  } else if (status == 3) {
+    sol.solver_status = MidMpcSolution::SolverStatus::NumericalFailure;
+  } else if (status == 4) {
+    // status==4 with solver_moved==false: the constraints_satisfied_ block
+    // above was skipped (gate requires solver_moved). The QP had an error and
+    // the solver did not move from the seed — this is a hard failure.
+    // solver_status was NOT set above, so set it here.
+    if (sol.solver_status == MidMpcSolution::SolverStatus::NotInitialized) {
+      sol.solver_status = MidMpcSolution::SolverStatus::NumericalFailure;
+    }
+  } else {
+    // Other unexpected status codes → NumericalFailure.
+    sol.solver_status = MidMpcSolution::SolverStatus::NumericalFailure;
   }
   // NaN in the trajectory is ALWAYS a NumericalFailure, regardless of status.
   if (any_nan) {
@@ -1822,8 +1900,25 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // because the frozen prefix makes the problem infeasible at stage 0. Mapping
   // to NumericalFailure (D1 prefix) rather than Infeasible (QP) gives M7 a
   // clearer signal: the committed prefix itself is unsafe, not just the QP.
-  if (!d1_prefix_cpa_witness(input, formulation_.config().dt_s)) {
+  const bool d1_violated = !d1_prefix_cpa_witness(input, formulation_.config().dt_s);
+  if (d1_violated) {
     mapped = MidMpcSolution::Status::NumericalFailure;
+  }
+
+  // ── L4-T3: populate safety_status (VR-05). ──────────────────────────────
+  // safety_status is the PRIMARY signal for M7/MRM escalation. It is computed
+  // AFTER the D1 witness and NaN checks so it reflects the final safety
+  // assessment of the solved trajectory, independent of solver convergence.
+  // Order of precedence (strongest first):
+  //   1. D1 witness failure or NaN trajectory → Unsafe (hard violation)
+  //   2. L0 input degradation → Degraded (fallback in use)
+  //   3. Otherwise → Nominal (all checks pass)
+  if (any_nan || d1_violated) {
+    sol.safety_status = MidMpcSolution::SafetyStatus::Unsafe;
+  } else if (input.degradation.any()) {
+    sol.safety_status = MidMpcSolution::SafetyStatus::Degraded;
+  } else {
+    sol.safety_status = MidMpcSolution::SafetyStatus::Nominal;
   }
 
   const auto t_end = std::chrono::steady_clock::now();

@@ -62,6 +62,36 @@ struct ReachabilitySchedule {
   bool direction_wrong_side{false};
 };
 
+// ── L4-T3 status contract functions (VR-05, 2026-07-21) ───────────────────
+// These are public so the L4 contract tests can verify the status mapping
+// without instantiating a full acados solver. The solve() method calls these
+// internally; they are NOT part of the solver class itself (pure functions).
+
+// Map the acados integer solver status (raw 0..7) to MidMpcSolution::SolverStatus.
+// This is the PRIMARY mapping — the backward-compatible Status is derived from
+// SolverStatus via solver_status_to_status().
+// Contract (fail-closed):
+//   raw 0 → Converged        (all KKT conditions met)
+//   raw 1 → Timeout          (max iterations)
+//   raw 2 → Infeasible       (QP infeasible)
+//   raw 3 → NumericalFailure (QP solver failed)
+//   raw 4 → QpRecovered      (QP error during refinement — caller must verify
+//                              solver_moved + primal feasibility before use)
+//   other→ NumericalFailure  (unexpected)
+// VR-05: raw 4 NEVER maps to Converged. This is the contract the L4 tests assert.
+MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status);
+
+// Map SolverStatus to the backward-compatible MidMpcSolution::Status.
+// This preserves the existing downstream contract (L4/L5/M7 read `status`) while
+// allowing new consumers to read `solver_status` directly.
+//   Converged        → Converged
+//   QpRecovered      → NumericalFailure  (NOT Converged — VR-05)
+//   Timeout          → Timeout
+//   Infeasible       → Infeasible
+//   NumericalFailure → NumericalFailure
+//   NotInitialized   → NotInitialized
+MidMpcSolution::Status solver_status_to_status(MidMpcSolution::SolverStatus ss);
+
 // MidMpcAcadosSolver — production acatos backend for Mid-MPC (Path B 5-dim).
 //
 // Construct once per MidMpcSolver lifetime (the capsule is expensive to build).
@@ -198,14 +228,18 @@ class MidMpcAcadosSolver {
   // full rationale (acatos v0.4.4 first-solve cold-start effect).
   void warm_up_capsule_();
 
-  // C1 status-4 constraint-satisfaction re-check (T17 review-fix C1). Recomputes
-  // the constraint residuals h(x,u,p) per stage from the formulation's MX
-  // con_h_expr (the SAME expression the acatos codegen derives from), evaluated
+  // L4-T3 (VR-05): status-4 constraint-satisfaction re-check (T17 review-fix C1).
+  // Recomputes the constraint residuals h(x,u,p) per stage from the formulation's
+  // MX con_h_expr (the SAME expression the acatos codegen derives from), evaluated
   // on the SOLVED trajectory, and verifies each row satisfies its lh/uh bound
   // within kBoxTol (CPA softened rows use the per-stage slack xi). Returns true
-  // iff every active row is satisfied. Used to gate the status-4 -> Converged
-  // re-map: a status-4 solve that MOVED but VIOLATED a constraint (e.g. CPA
-  // hard floor breached) must NOT be reported Converged.
+  // iff every active row is satisfied.
+  //
+  // VR-05: raw 4 (QP error during refinement) is NEVER re-mapped to Converged.
+  // This function is still called for diagnostic logging + soft-aspiration
+  // telemetry, and to determine whether solver_status should be QpRecovered
+  // (primal feasible) vs NumericalFailure (hard violation). The backward-
+  // compatible status always stays NumericalFailure for raw 4.
   // @param g    global params (np_global), as packed by pack_parameters.
   // @param ps   per-stage params [N+1][np_per_stage], as packed.
   // @param lateral_active  the active-row derivation for this cycle.

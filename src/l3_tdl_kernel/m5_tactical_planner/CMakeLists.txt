@@ -679,6 +679,23 @@ if(BUILD_TESTING)
       target_link_options(test_regression_scan PRIVATE
         -fno-sanitize=address -fno-sanitize=undefined)
     endif()
+
+    # ── L4 status-contract tests (VR-05, 2026-07-21) ─────────────────────────
+    # Pure-function tests on the status mapping contract. Depends on the acados
+    # solver header for map_acados_status_to_solver_status / solver_status_to_status
+    # declarations, but does NOT instantiate the solver. Links against the m5
+    # shared lib (which compiles mid_mpc_acados_solver.cpp when M5_HAS_ACADOS).
+    m5_add_gtest(test_l4_contracts
+      test/unit/test_l4_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_l4_contracts PROPERTIES TIMEOUT "60")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l4_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l4_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
   endif()
 	
 	  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────

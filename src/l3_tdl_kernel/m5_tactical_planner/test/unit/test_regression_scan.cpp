@@ -6,12 +6,15 @@
 // H plan: cap SQP max_iter at 100 (down from 400) so MAX_ITER-fail cases are
 //         ~9s instead of ~40s; keeps the scan under the 120s budget.
 //
-// Status semantics (F7):
-//   raw=0 → Converged (solver accepted the optimum)
+// Status semantics (F7, updated for L4-T3 VR-05 fail-closed mapping):
+//   raw=0 → Converged (solver accepted the optimum, all KKT conditions met)
 //   raw=2 → MAX_ITER (NOT QP infeasible — the wrapper line 116-118 misleadingly
 //                    maps to Infeasible, but the underlying cause is SQP hit
 //                    the iteration cap before convergence)
-//   raw=4 → QP error recovered (status 4 + constraints_satisfied + solver-moved)
+//   raw=4 → QP error recovered (QP error during refinement; solver_status=QpRecovered,
+//           backward-compat status=NumericalFailure per VR-05 fail-closed contract.
+//           The solved trajectory may still be useful for geometric fallback, but
+//           raw=4 MUST NEVER be re-mapped to Converged.)
 //
 // The 8-point sweep target_y values mirror P4 baseline (commit 2c031bc49):
 //   {-548, -348, -148, +52, +152, +252, +352} — relative gap to a head-on
@@ -209,10 +212,13 @@ TEST(RegressionScanTest, Gap52_MustConverge_BaselineGate) {
 //
 // USES INDEPENDENT CAPSULE (same rationale as S-T2).
 //
-// With the FB-3 fix: gap=+252 converges with raw=4 (QP error recovered, wrapper
-// maps to Converged) — slightly worse than P4's raw=0, but functionally correct
-// (constraints satisfied, solver moved). The raw=4→Converged path is an accepted
-// production behavior for this boundary point.
+// Post-L4-T3 (VR-05): raw=4 maps to NumericalFailure in the backward-compat
+// status. The test checks the raw acados status (not the mapped status) because
+// the solver route is what matters for convergence-band characterization.
+// Raw=4 is accepted as a valid boundary outcome — the solver moved and the
+// trajectory is primal-feasible, even though the QP refinement had an error.
+// The backward-compat status will be NumericalFailure (fail-closed), which is
+// correct per VR-05: raw=4 must never become Converged in the status field.
 // =========================================================================//
 TEST(RegressionScanTest, Gap252_MustConverge) {
   MidMpcAcadosFormulation form;
@@ -221,11 +227,9 @@ TEST(RegressionScanTest, Gap252_MustConverge) {
   MidMpcInput inp = make_target_scenario(1600.0);  // gap = 1852 - 1600 = +252.
   const auto sol = solver.solve(inp, nullptr);
   const int raw = solver.last_raw_status();
-  // With FB-3 fix: raw=4 (QP error recovered) is accepted — the wrapper maps
-  // raw=4 to Converged when constraints are satisfied and solver moved. P4
-  // baseline had raw=0 here, but raw=4 with Converged status is a valid gate
-  // pass for this boundary point. Raw=2 (MAX_ITER) or raw=3 (hard QP fail)
-  // would indicate a regression.
+  // VR-05: raw=4 is accepted (solver moved, primal feasible) but the
+  // backward-compat status will be NumericalFailure, NOT Converged.
+  // Raw=2 (MAX_ITER) or raw=3 (hard QP fail) would indicate a regression.
   EXPECT_TRUE(raw == 0 || raw == 4)
       << "P4 boundary: target_y=1600 (gap=+252) must converge (raw=0 or raw=4). "
       << "raw=" << raw

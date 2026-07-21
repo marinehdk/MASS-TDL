@@ -369,6 +369,32 @@ inline std::string MidMpcInput::InputDegradation::summary() const {
 // MidMpcSolution — result from one Mid-MPC solve cycle
 // ---------------------------------------------------------------------------
 struct MidMpcSolution {
+  // ── L4 layered status (VR-05, 2026-07-21) ────────────────────────────────
+  // The legacy `status` field conflates solver outcome, safety assessment, and
+  // execution readiness. L4-T3 adds two orthogonal status layers that separate
+  // these concerns while keeping `status` for backward compatibility.
+  //
+  //   solver_status:  what the acados NLP solver returned (raw 0..7 mapped to
+  //                   a semantically-correct enum). QP-recovered (raw=4,
+  //                   solver_moved, primal feasible) is DISTINCT from Converged
+  //                   (raw=0, all KKT conditions met). This is the PRIMARY signal
+  //                   for solver health telemetry and fallback dispatch.
+  //
+  //   safety_status:  independent safety assessment of the solved trajectory.
+  //                   Computed from the D1 committed-prefix CPA witness,
+  //                   NaN/Inf trajectory check, and L0 input degradation.
+  //                   This is the PRIMARY signal for M7/MRM escalation.
+  //
+  //   status:         backward-compatible mapping from solver_status for
+  //                   downstream consumers that have not been updated to read
+  //                   solver_status directly. Mapping:
+  //                     Converged       → Converged
+  //                     QpRecovered     → NumericalFailure
+  //                     Timeout         → Timeout
+  //                     Infeasible      → Infeasible
+  //                     NumericalFailure→ NumericalFailure
+  //                     NotInitialized  → NotInitialized
+  // ──────────────────────────────────────────────────────────────────────────
   enum class Status : std::uint8_t {
     Converged       = 0u,
     Timeout         = 1u,
@@ -377,7 +403,25 @@ struct MidMpcSolution {
     NotInitialized  = 4u,
   };
 
+  enum class SolverStatus : std::uint8_t {
+    Converged        = 0u,  // raw 0, all KKT conditions met
+    QpRecovered      = 1u,  // raw 4, QP error during refinement, primal feasible
+    Timeout          = 2u,  // raw 1, max iterations reached
+    Infeasible       = 3u,  // raw 2, QP infeasible
+    NumericalFailure = 4u,  // raw 3 or other unexpected
+    NotInitialized   = 5u,
+  };
+
+  enum class SafetyStatus : std::uint8_t {
+    Nominal  = 0u,  // all checks pass, trajectory safe
+    Degraded = 1u,  // input degraded or solver had non-fatal issues
+    Unsafe   = 2u,  // prefix D1 witness failed, hard CPA violated, or NaN trajectory
+    Unknown  = 3u,
+  };
+
   Status status{Status::NotInitialized};
+  SolverStatus solver_status{SolverStatus::NotInitialized};
+  SafetyStatus safety_status{SafetyStatus::Unknown};
   std::vector<TrajectoryPoint> trajectory;  // N-point solution (horizon)
   double cost_total{0.0};
   double cost_colreg{0.0};
