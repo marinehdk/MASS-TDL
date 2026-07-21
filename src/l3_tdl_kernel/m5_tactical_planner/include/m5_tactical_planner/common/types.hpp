@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -455,6 +456,13 @@ struct MidMpcSolution {
   // The IPOPT path leaves these at 0 (it has cpa_slack instead).
   double soft_aspiration_d_min_m{0.0};
   double soft_aspiration_violation_m{0.0};
+  // LX-T3: continuous/swept CPA witness — minimum CPA over all trajectory
+  // line segments (interval between nodes). Complements the node-only CPA
+  // check by detecting interval crossings where node CPA >= cpa_hard_m but
+  // the swept trajectory passes within the CPA cylinder between nodes.
+  // Infinity when no trajectory or no targets (populated by L4 witness).
+  double continuous_cpa_min_m{std::numeric_limits<double>::infinity()};
+  bool continuous_cpa_violated{false};  // true when swept CPA < cpa_hard_m
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};

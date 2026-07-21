@@ -35,6 +35,11 @@
 // testable without acados).  Header-only inline; no link dep.
 #include "m5_tactical_planner/shared/soft_aspiration_telemetry.hpp"
 
+// LX-T3: continuous/swept CPA independent witness. Detects interval crossings
+// where node CPA >= cpa_hard_m but the swept trajectory passes within the CPA
+// cylinder between nodes. Header-only inline; no link dep.
+#include "m5_tactical_planner/shared/continuous_cpa_check.hpp"
+
 // CasADi (MX/Function) for the C1 status-4 constraint-satisfaction re-check
 // (T17 review-fix C1): the check recomputes the constraint residuals h(x,u,p)
 // from the SAME MX expression the acados codegen derives from
@@ -1968,6 +1973,37 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
 
   // Stamp the cycle (parity with node-side MidMpcSolution population).
   sol.stamp_ns = input.stamp_ns;
+
+  // ---- LX-T3: continuous/swept CPA witness (L4 independent, read-only). ----
+  // The node-only D1 witness checks CPA at discrete stage nodes. However, both
+  // own-ship and target move linearly between stages; if the swept relative
+  // trajectory passes within cpa_hard_m even though every node satisfies the
+  // floor, the trajectory has an interval crossing. This witness detects that
+  // gap via segment-distance computation on the solved trajectory.
+  //
+  // This is a read-only WITNESS: it does not change solver_status or the
+  // backward-compatible `status`. If violated, it sets continuous_cpa_violated
+  // and may escalate safety_status to Unsafe (independent safety layer).
+  {
+    const auto ccpa = shared::compute_continuous_cpa(
+        sol.trajectory, input.targets, input.constraints.cpa_hard_m);
+    sol.continuous_cpa_min_m = ccpa.min_swept_cpa_m;
+    if (ccpa.interval_crossing_detected) {
+      sol.continuous_cpa_violated = true;
+      spdlog::warn(
+          "[M5][MidMPC][L4-T3] CONTINUOUS CPA VIOLATION: swept CPA={:.1f} m "
+          "< cpa_hard={:.1f} m at segment k={} target_id={}. "
+          "Interval crossing detected — node-level CPA check passed but the "
+          "trajectory passed within the CPA cylinder between nodes.",
+          ccpa.min_swept_cpa_m, input.constraints.cpa_hard_m,
+          ccpa.violating_segment_k, ccpa.violating_target_id);
+      // Escalate safety_status to Unsafe: the solved trajectory has a
+      // continuous CPA violation regardless of solver convergence.
+      if (sol.safety_status != MidMpcSolution::SafetyStatus::Unsafe) {
+        sol.safety_status = MidMpcSolution::SafetyStatus::Unsafe;
+      }
+    }
+  }
 
   // Log non-Converged outcomes for telemetry (mirror IPOPT warn pattern).
   // Suppressed during cold-capsule warm-up (impl_->warm_up): the first warm-up

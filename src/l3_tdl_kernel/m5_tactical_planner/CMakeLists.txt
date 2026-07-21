@@ -614,10 +614,15 @@ if(BUILD_TESTING)
     )
 	  endif()
 	
-	  # ── L4-T2: soft-aspiration telemetry free function (no CasADi/acados) ──
-	  m5_add_gtest(test_soft_aspiration_telemetry
-	    test/unit/test_soft_aspiration_telemetry.cpp
-	  )
+  # ── L4-T2: soft-aspiration telemetry free function (no CasADi/acados) ──
+  m5_add_gtest(test_soft_aspiration_telemetry
+    test/unit/test_soft_aspiration_telemetry.cpp
+  )
+
+  # ── LX-T3: continuous/swept CPA witness free function (no CasADi/acados) ──
+  m5_add_gtest(test_continuous_cpa_check
+    test/unit/test_continuous_cpa_check.cpp
+  )
 	
 	  # ── L0 input guard tests (types.hpp helpers, no CasADi needed) ────────
 	  m5_add_gtest(test_l0_input_guards
