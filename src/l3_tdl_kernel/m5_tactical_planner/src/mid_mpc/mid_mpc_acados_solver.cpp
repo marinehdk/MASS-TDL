@@ -983,6 +983,70 @@ double steady_state_n_for_u(double u_mps) {
 	// L4/M7 can cross-check against the committed prefix witness (L1b DP-04 D1,
 	// SC-04) for a prefix-specific audit if needed.
 //
+// ===========================================================================
+// L4-T2: compute_soft_aspiration_telemetry_ — geometric d_min walk over solved
+// trajectory. Computes the minimum Euclidean distance from any trajectory point
+// to any real target, then stores d_min and soft-aspiration violation (cpa_safe
+// - d_min, clamped to >= 0) into impl_.  Uses ONLY the trajectory arrays +
+// target positions + global params; NO CasADi h-function dependency. This allows
+// telemetry population at ALL solve() exit paths, including failure statuses
+// where the h_fn cache may be invalid or constraints_satisfied_ is skipped.
+// ===========================================================================
+void MidMpcAcadosSolver::compute_soft_aspiration_telemetry_(
+    const std::vector<double>& px_traj,
+    const std::vector<double>& py_traj,
+    const std::vector<double>& target_x,
+    const std::vector<double>& target_y,
+    int n_targets,
+    const std::vector<double>& g) {
+  const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
+  // Guard: trajectory arrays must have at least kAcadosN+1 elements; if not,
+  // leave impl_ fields at current values (stale / 0) and return — this is a
+  // soft guard for the caller's contract, not a hard error.
+  const std::size_t expected_len = static_cast<std::size_t>(kAcadosN + 1);
+  if (px_traj.size() < expected_len || py_traj.size() < expected_len) {
+    return;
+  }
+  // Guard: target arrays must have at least n_t entries.
+  const std::size_t n_tu = static_cast<std::size_t>(n_t);
+  if (n_t == 0) {
+    impl_->last_soft_aspiration_d_min_m = 0.0;
+    impl_->last_soft_aspiration_violation_m = 0.0;
+    return;
+  }
+  if (target_x.size() < n_tu || target_y.size() < n_tu) {
+    return;
+  }
+
+  double d_min_over_horizon = std::numeric_limits<double>::infinity();
+  for (int k = 0; k <= kAcadosN; ++k) {
+    const std::size_t kk = static_cast<std::size_t>(k);
+    for (int t = 0; t < n_t; ++t) {
+      const std::size_t tt = static_cast<std::size_t>(t);
+      const double dx = px_traj[kk] - target_x[tt];
+      const double dy = py_traj[kk] - target_y[tt];
+      const double d2 = dx * dx + dy * dy;
+      if (d2 > 0.0 && std::isfinite(d2)) {
+        const double d_kt = std::sqrt(d2);
+        if (d_kt < d_min_over_horizon) {
+          d_min_over_horizon = d_kt;
+        }
+      }
+    }
+  }
+
+  impl_->last_soft_aspiration_d_min_m =
+      std::isfinite(d_min_over_horizon) ? d_min_over_horizon : 0.0;
+  const std::size_t cpa_safe_idx =
+      static_cast<std::size_t>(kAcadosGIdxCpaSafe);
+  const double cpa_safe_val =
+      (cpa_safe_idx < g.size()) ? g[cpa_safe_idx] : 1852.0;
+  impl_->last_soft_aspiration_violation_m =
+      std::isfinite(d_min_over_horizon)
+          ? std::max(0.0, cpa_safe_val - d_min_over_horizon)
+          : 0.0;
+}
+
 // The check is INDEPENDENT of the solver's internal residual bookkeeping: it
 // rebuilds h from the published trajectory + the packed parameters and applies
 // the documented bounds. A NaN residual (divergent iterate) fails the check.
@@ -1022,9 +1086,11 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
   // Step5 方案 B: target count is kAcadosNt (16, layout constant), NOT
   // kAcadosNsh (0 after codegen re-run). CPA row activation uses n_t.
   const int n_t = std::max(0, std::min(n_targets, kAcadosNt));
-  // FB-2 telemetry remedy: track d_min over the horizon for soft aspiration
-  // violation_m. Initialised to +inf so the first real target sets it.
-  double d_min_over_horizon = std::numeric_limits<double>::infinity();
+  // L4-T2: accumulate solved trajectory positions during the constraint loop
+  // so we can delegate d_min telemetry to compute_soft_aspiration_telemetry_
+  // at the end (eliminates the inline d_min computation duplication).
+  std::vector<double> px_traj(static_cast<std::size_t>(kAcadosN + 1), 0.0);
+  std::vector<double> py_traj(static_cast<std::size_t>(kAcadosN + 1), 0.0);
   for (int k = 0; k <= kAcadosN; ++k) {
     const std::size_t kk = static_cast<std::size_t>(k);
 
@@ -1035,6 +1101,9 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
     // x only, so u_N does not affect the active terminal residual).
     double xk[kAcadosNx] = {0, 0, 0, 0, 0};
     ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "x", xk);
+    // L4-T2: save trajectory position for deferred telemetry computation.
+    px_traj[kk] = xk[0];
+    py_traj[kk] = xk[1];
     double uk[kAcadosNu] = {0.0, 0.0};
     if (k < kAcadosN) {
       ocp_nlp_out_get(impl_->cfg, impl_->dims, impl_->out, k, "u", uk);
@@ -1103,34 +1172,8 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
                      "finite", k, r, hv);
         return false;
       }
-	      // FB-2 telemetry: fold d_kt into d_min for real CPA rows (t < n_t).
-	      // Runs BEFORE the is_relaxed guard so this telemetry is populated even
-	      // when the CPA row is softened (cpa_soft=true or prefix_stage=true).
-	      // The d_min_over_horizon is a geometric measurement (minimum distance
-	      // from any solved trajectory point to any real target), not a constraint
-	      // check — it should reflect the minimum CPA distance over ALL stages,
-	      // regardless of hardening state. Without this fix, softened CPA rows
-	      // are skipped and d_min_over_horizon sees only the terminal stage (k=N),
-	      // producing artificially large values (e.g. 6849m instead of ~2100m for
-	      // a target at y=2100m). The CPA residual h = dx^2+dy^2 - cpa_hard^2,
-	      // so d_kt = sqrt(hv + cpa_hard^2). cpa_hard is read from the global
-	      // param slot kAcadosGIdxCpaHard (1852 fixed).
-	      if (r >= kRowCpaBase && r < kRowCpaBase + n_t) {
-	        const std::size_t cpa_hard_idx =
-	            static_cast<std::size_t>(kAcadosGIdxCpaHard);
-	        if (cpa_hard_idx < g.size()) {
-	          const double cpa_hard = g[cpa_hard_idx];
-	          const double sum = hv + cpa_hard * cpa_hard;  // = dx^2+dy^2
-	          if (sum > 0.0 && std::isfinite(sum)) {
-	            const double d_kt = std::sqrt(sum);
-	            if (d_kt < d_min_over_horizon) {
-	              d_min_over_horizon = d_kt;
-	            }
-	          }
-	        }
-	      }
 
-	      // Relaxed row (double-disabled) -> always satisfied.
+      // Relaxed row (double-disabled) -> always satisfied.
 	      if (is_relaxed(lo, hi)) continue;
 
 	      // Step5 方案 B: CPA rows are TRUE hard (nsh=0, no slack). The effective
@@ -1163,23 +1206,27 @@ bool MidMpcAcadosSolver::constraints_satisfied_(
       }
     }
   }
-  // FB-2 telemetry remedy: lift d_min + soft aspiration violation_m into Impl
-  // for solve() to read into MidMpcSolution. violation_m = max(0, cpa_safe -
-  // d_min); cpa_safe is the SOFT aspiration (2500 during conflict, 1852
-  // otherwise). When no real target was seen, d_min stays +inf -> violation 0.
-  impl_->last_soft_aspiration_d_min_m =
-      std::isfinite(d_min_over_horizon) ? d_min_over_horizon : 0.0;
-  // Step5 方案 B code-review M1: use the public alias instead of the literal 10
-  // so the slot arithmetic stays auditable (kAcadosGIdxCpaSafe mirrors the
-  // anonymous-namespace kGIdxCpaSafe in mid_mpc_acados_formulation.cpp).
-  const std::size_t cpa_safe_idx = static_cast<std::size_t>(kAcadosGIdxCpaSafe);
-  const double cpa_safe_val =
-      (cpa_safe_idx < g.size()) ? g[cpa_safe_idx] : 1852.0;
-  const double violation =
-      std::isfinite(d_min_over_horizon)
-          ? std::max(0.0, cpa_safe_val - d_min_over_horizon)
-          : 0.0;
-  impl_->last_soft_aspiration_violation_m = violation;
+  // L4-T2: delegate d_min + soft aspiration violation_m computation to the
+  // standalone telemetry helper (eliminates inline duplication). Extract
+  // undrifted target positions from ps[0] (stage 0 has zero drift, equivalent
+  // to input.targets positions). The trajectory arrays were accumulated during
+  // the constraint loop above.
+  {
+    const std::size_t n_tu = static_cast<std::size_t>(n_t);
+    std::vector<double> tgt_x(n_tu, 0.0);
+    std::vector<double> tgt_y(n_tu, 0.0);
+    if (n_t > 0 && !ps.empty()) {
+      const auto& ps0 = ps[0];
+      for (int t = 0; t < n_t; ++t) {
+        const std::size_t tt = static_cast<std::size_t>(t);
+        tgt_x[tt] = ps0[static_cast<std::size_t>(kAcadosPerStageTgtDriftOff + t)];
+        tgt_y[tt] = ps0[static_cast<std::size_t>(kAcadosPerStageTgtDriftOff
+                                                  + kAcadosMaxTargets + t)];
+      }
+    }
+    compute_soft_aspiration_telemetry_(px_traj, py_traj, tgt_x, tgt_y,
+                                       n_t, g);
+  }
   return true;
 }
 
@@ -1708,6 +1755,29 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     }
   }
 
+  // L4-T2: compute soft-aspiration d_min + violation_m telemetry at ALL solve()
+  // exit paths.  This runs BEFORE the status-dependent constraints_satisfied_
+  // gate, so even when the solve returns status=1 (Timeout), status=2
+  // (Infeasible), or status=3 (NumericalFailure), the operator still receives
+  // the d_min signal ("how close did we get?") from the (possibly partial)
+  // solved trajectory.  When constraints_satisfied_ runs below (status=0/4), its
+  // internal call to compute_soft_aspiration_telemetry_ overwrites these values
+  // with the h-function-derived (more accurate) d_min.
+  {
+    const int n_t = std::max(0, std::min(
+        static_cast<int>(input.targets.size()), kAcadosNt));
+    const std::size_t n_tu = static_cast<std::size_t>(n_t);
+    std::vector<double> tgt_x(n_tu, 0.0);
+    std::vector<double> tgt_y(n_tu, 0.0);
+    for (int t = 0; t < n_t; ++t) {
+      const std::size_t tt = static_cast<std::size_t>(t);
+      tgt_x[tt] = input.targets[tt].x_m;
+      tgt_y[tt] = input.targets[tt].y_m;
+    }
+    compute_soft_aspiration_telemetry_(px_traj, py_traj, tgt_x, tgt_y,
+                                       n_t, g);
+  }
+
   // F5 solver-moved: traj_delta = sum |px_solved - px_seed| + |py_solved - py_seed|.
   double traj_delta = 0.0;
   for (int k = 0; k <= kAcadosN; ++k) {
@@ -1734,9 +1804,11 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // is unused but the d_min computation must still run so the telemetry is
   // populated every cycle. For status=4 the boolean gates the re-map. Running
   // the check on status=0 is an N-step cached MX eval (cheap, observability-
-  // only). For status=1/2/3 (Timeout/Infeasible/NumFailure) the trajectory is
-  // unreliable; skip the check (d_min stays at last cycle's value, which is
-  // acceptable for telemetry — those statuses already flag the cycle).
+  // only).  For status=1/2/3 (Timeout/Infeasible/NumFailure) the trajectory is
+  // unreliable for constraint checking, so skip constraints_satisfied_; however
+  // the d_min telemetry is already populated above (L4-T2: all-exit-path
+  // compute_soft_aspiration_telemetry_ call), so the operator still sees the
+  // d_min violation degree even when the solve failed.
   if (status == 0 || (status == 4 && solver_moved)) {
     const bool csat = constraints_satisfied_(g, ps, lateral_active, n_targets,
                                               input.prefix_active_k, sched);
@@ -1788,8 +1860,9 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
   // violation_m from Impl into MidMpcSolution so ASDR/SAT can observe how far
   // the solved trajectory is from the soft cpa_safe (2500 during conflict).
   // This is the slack-free replacement for the cpa_slack signal (which is 0
-  // under nsh=0). Populated by constraints_satisfied_ (called above for
-  // status=0 and status=4); stays 0 for Timeout/Infeasible/NumFailure.
+  // under nsh=0). L4-T2: now populated at ALL solve() exit paths via
+  // compute_soft_aspiration_telemetry_ (called above before the status gates,
+  // and also called internally by constraints_satisfied_ for status=0/4).
   sol.soft_aspiration_d_min_m = impl_->last_soft_aspiration_d_min_m;
   sol.soft_aspiration_violation_m = impl_->last_soft_aspiration_violation_m;
 

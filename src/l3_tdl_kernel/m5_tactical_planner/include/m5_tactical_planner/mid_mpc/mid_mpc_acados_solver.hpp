@@ -218,6 +218,29 @@ class MidMpcAcadosSolver {
                                             int prefix_K,
                                             const ReachabilitySchedule& sched);
 
+  // L4-T2: compute soft-aspiration d_min + violation_m telemetry from solved
+  // trajectory geometry. Walks px_traj/py_traj against target (x,y) positions and
+  // stores the minimum distance into impl_->last_soft_aspiration_d_min_m and
+  // _violation_m. Uses cpa_safe from global params for the violation degree.
+  // Works purely from trajectory arrays + target positions + global params — no
+  // CasADi dependency. Callable at ALL solve() exit paths, including failure
+  // statuses where the h_fn cache is invalid or constraints_satisfied_ is skipped.
+  // The trajectory arrays must have size kAcadosN+1; target arrays must have size
+  // >= n_targets (only the first n_targets entries are used).
+  // @param px_traj   solved x positions [N+1], read from acados "x" output
+  // @param py_traj   solved y positions [N+1], read from acados "x" output
+  // @param target_x  per-target x positions (undrifted, from input.targets or ps[0])
+  // @param target_y  per-target y positions (undrifted, from input.targets or ps[0])
+  // @param n_targets number of real targets (0..kAcadosMaxTargets)
+  // @param g         global params vector (for cpa_safe slot index)
+  void compute_soft_aspiration_telemetry_(
+      const std::vector<double>& px_traj,
+      const std::vector<double>& py_traj,
+      const std::vector<double>& target_x,
+      const std::vector<double>& target_y,
+      int n_targets,
+      const std::vector<double>& g);
+
  public:
   // S1 safety gate accessor: the MidMpcSolver dispatch reads this to decide
   // whether to dispatch to acados (true) or fall back to IPOPT (false). False
