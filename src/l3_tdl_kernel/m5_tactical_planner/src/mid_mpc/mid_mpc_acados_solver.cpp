@@ -1217,6 +1217,13 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
 #endif
   MidMpcSolution sol;  // status defaults to NotInitialized
 
+  // L4-T1: consume L0 InputDegradation flags — populate rationale for downstream
+  // L4/L5/LX/M8 consumers. ARCH-DECISION-03: NEVER silently substitute — always
+  // mark degraded so downstream can distinguish "real input" from "fallback".
+  if (input.degradation.any()) {
+    sol.rationale = "L0:" + input.degradation.summary();
+  }
+
   // ---- 1. pack parameters. ----
   // NOTE: packed.second (ps) is NON-const because P2 T4 writes the per-stage
   // tb_x/tb_y slots AFTER pack_parameters (which leaves them at 0.0) and BEFORE
@@ -1743,6 +1750,10 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
         spdlog::warn("[M5][MidMPC][acados] status=4 RE-MAP DENIED: solver moved "
                      "(traj_delta={}) but constraint re-check FAILED -> keeping "
                      "NumericalFailure (NOT Converged).", traj_delta);
+        if (input.degradation.any()) {
+          spdlog::warn("[M5][MidMPC][acados] status=4 RE-MAP DENIED: concurrent "
+                       "L0 degradation: {}", input.degradation.summary());
+        }
       }
     }
   }

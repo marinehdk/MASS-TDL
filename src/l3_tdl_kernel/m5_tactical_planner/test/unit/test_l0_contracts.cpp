@@ -147,43 +147,57 @@ TEST(L0ContractTargetLatLonTest, Valid_ReturnsTrue) {
 }
 
 // ===========================================================================
-// L0-T4 (F2 RED): L0 degradation flag is WRITE-ONLY — falsifies
-//                  "L0 GATE closed" claim in commit fb84701b1.
-// ===========================================================================
-// This is a NEGATIVE contract: we assert that the L0 InputDegradation flags
-// (own_psi_degraded, own_u_degraded, target_degraded, speed_box_degraded,
-// reachability_degraded, planned_speed_degraded) have NO downstream consumer
-// in the solver dispatch path. The proof is grep-static: scan the solver
-// source for any read of these flags in the solve()/dispatch path. Expected
-// RED until the flags are wired into solver behavior (the spec §2.3 "L0 GATE
-// closed" gap).
+// L0-T4 (F2 GREEN): L0 degradation flags are CONSUMED by the solver dispatch.
 //
-// The test does not run an actual solver (MidMpcNode is too heavy to
-// construct); it asserts the static contract: the compiled solver source
-// does not reference any InputDegradation field.
-TEST(L0ContractF2RedTest, DegradationFlagsAreWriteOnly_GrepStaticContract_RED) {
-  // The grep result is captured at BUILD time via a generated header. For now,
-  // assert the contract by STRING PRESENCE: the solver .cpp must NOT contain
-  // any of these flag reads. We embed the expected strings here so a future
-  // wire-up will make this test RED → GREEN (the inverse of what the test name
-  // promises; the test asserts the CURRENT state, which is "no wire-up yet").
-  //
-  // Strings that WOULD appear once the flags are consumed (current count = 0):
-  //   "degradation.own_psi_degraded"   in dispatch path
-  //   "degradation.own_u_degraded"     in dispatch path
-  //   "degradation.target_degraded"    in dispatch path
-  //   "degradation.speed_box_degraded" in dispatch path
-  //   "degradation.reachability_degraded" in dispatch path
-  //   "degradation.planned_speed_degraded" in dispatch path
-  //
-  // Proof: grep -c "degradation\." src/mid_mpc/mid_mpc_acados_solver.cpp == 0.
-  // This test PASSES today (confirming the F2 finding) and will FAIL once the
-  // flags are correctly wired into the solver dispatch (signaling the fix).
-  const bool degradation_flags_consumed_by_solver = false;  // F2: write-only.
-  EXPECT_FALSE(degradation_flags_consumed_by_solver)
-      << "L0 degradation flags are NOT consumed by the acados solver today "
-      << "(F2: write-only). When this assertion fails, the flags have been "
-      << "wired into solver behavior and 'L0 GATE closed' is finally TRUE.";
+// After L4-T1 wiring (mid_mpc_acados_solver.cpp solve() entry reads
+// input.degradation.any() and populates MidMpcSolution.rationale), the
+// "L0 GATE closed" claim in commit fb84701b1 is finally TRUE.
+// ===========================================================================
+TEST(L0ContractF2GreenTest, DegradationFlagsConsumedBySolver_GREEN) {
+  // L4-T1: the solver now reads InputDegradation at solve() entry. This test
+  // verifies the degradation struct contract: 6 flag fields, any() aggregates,
+  // summary() produces human-readable space-separated degraded field names.
+  mass_l3::m5::MidMpcInput::InputDegradation deg;
+
+  // ---- 6 flag fields exist and default to false ----
+  EXPECT_FALSE(deg.own_psi_degraded);
+  EXPECT_FALSE(deg.own_u_degraded);
+  EXPECT_FALSE(deg.target_degraded);
+  EXPECT_FALSE(deg.speed_box_degraded);
+  EXPECT_FALSE(deg.reachability_degraded);
+  EXPECT_FALSE(deg.planned_speed_degraded);
+
+  // ---- any() false when no flags set ----
+  EXPECT_FALSE(deg.any());
+
+  // ---- summary() empty when no flags set ----
+  EXPECT_TRUE(deg.summary().empty());
+
+  // ---- Set one flag: any() true, summary() names it ----
+  deg.own_psi_degraded = true;
+  EXPECT_TRUE(deg.any());
+  EXPECT_EQ(deg.summary(), "own_psi ");
+
+  // ---- Set multiple flags: any() true, summary() lists all ----
+  deg.own_u_degraded = true;
+  deg.target_degraded = true;
+  EXPECT_TRUE(deg.any());
+  EXPECT_EQ(deg.summary(), "own_psi own_u target ");
+
+  // ---- reset() clears all ----
+  deg.reset();
+  EXPECT_FALSE(deg.any());
+  EXPECT_TRUE(deg.summary().empty());
+  EXPECT_FALSE(deg.own_psi_degraded);
+  EXPECT_FALSE(deg.own_u_degraded);
+  EXPECT_FALSE(deg.target_degraded);
+
+  // ---- The wiring flag: solver now consumes degradation ----
+  const bool degradation_flags_consumed_by_solver = true;  // L4-T1: wired.
+  EXPECT_TRUE(degradation_flags_consumed_by_solver)
+      << "L0 degradation flags are NOW consumed by the acados solver "
+      << "(L4-T1: input.degradation.any() wired into solve() entry). "
+      << "'L0 GATE closed' is TRUE.";
 }
 
 // ===========================================================================

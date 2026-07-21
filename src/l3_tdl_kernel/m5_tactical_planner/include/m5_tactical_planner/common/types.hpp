@@ -414,6 +414,13 @@ struct MidMpcSolution {
   std::int32_t solve_duration_ms{0};
   std::int32_t ipopt_iterations{0};
   std::int64_t stamp_ns{0};
+  // L4-T1: CMM-style human-readable solver cycle conditions string.
+  // Populated from L0 InputDegradation flags at solve() entry so downstream
+  // L4/L5/LX/M8 can distinguish "real input" from "fallback" (ARCH-DECISION-03).
+  // Format: "L0:own_psi own_u ..." when degraded, empty string otherwise.
+  // May be enriched by other solve() paths (e.g. status-4 rejection) by
+  // appending "; reason:...".
+  std::string rationale;
 };
 
 // ---------------------------------------------------------------------------
