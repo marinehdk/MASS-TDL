@@ -4804,24 +4804,129 @@ timeout 580 python3 scripts/run_6_scenarios.py \
 
 ---
 
-## [2026-07-20] Agent: ZCode (codex/m5-design-grounding @ 2ba5cfef9+)
-- **Git Commit**: Pending (L2 implementation, 3 files modified)
+## [2026-07-21] Agent: ZCode (codex/m5-design-grounding @ 0c3905c09 + afe2f2eba)
+- **Git Commit**: `0c3905c09` (L2 GATE closed) + `afe2f2eba` (docs: §12 commit hashes)
 - **任务目标 (Goal)**: L2 求解准备 — 完成 L2 GATE 关闭所需的全部实施项
 - **L2 完成项**:
-  1. ✅ **Codegen re-run**(NSH=0, NP=211, NH=20): 在 sil_nodes 容器内执行 gen_mid_mpc_acados.py → 库编译 → colcon build 验证. NP=211(155 global + 56 per-stage), NSH=0, 方案 B 完全生效.
-  2. ✅ **d_min fix for nsh=0**(约束满足度扫描): `constraints_satisfied_` 中 d_min 折叠移出 is_relaxed guard,使 softened CPA row 的 d_kt 也计入 d_min_over_horizon. 修复前只扫描 terminal stage(N=80)导致 d_min=6849(错误),修复后 d_min=2100(正确,目标 y=2100m). FB2b test 从 FAIL 转 PASS.
-  3. ✅ **Heading/ROT schedule 分离**: box live 块中 heading 按 `sched.k_head_earliest` 延迟硬化(提前阶段用 codegen 默认 ±π), ROT 和 speed 始终保持硬绑定(物理极限,无 schedule). 默认为 `k_head_earliest=0`(无 COLREGS lateral active 时全 stage 硬化,向后兼容).
-  4. ✅ **DP-03 b' test 修复**: 5 个 IPOPT minalt test 因 `kSurrogateFudgeFactor=2.0` 未在 test 中反映而 FAIL(expected 1, got 2). 已更新预期值 1→2.
-- **测试结果**:
-  - `test_mid_mpc_acados_solver`: **17/17 PASS**
-  - `test_mid_mpc_solver`: **55/55 PASS**(含 5 个修复的 minalt test)
-  - `test_l1a_cpa_hard_floor`: **4/4 PASS**
-  - 全量 36 个 test binary: **470 tests, 0 failures**
-- **§12 实施总表更新**: L2 行: `⬜待实施`→`✓完成`; DP-01 codegen: `待 codegen re-run`→`✅ NSH=0/NP=211 生效`; heading/ROT schedule: `延至 L1b`→`✓ 完成`; L3 行: GATE 标注 `L2 ✓ 已关闭,可进入 L3`
-- **L2 GATE 关闭条件**: 全部满足
-- **下一步(L3)**: 三 case(N=80,dt=15)最小数值矩阵验证; F-05 EXACT Hessian + R=0 + no-reg 数值
-- **关键提醒**:
-  - container `codex-m5-p3-sil-nodes-1` 当前 running(用于 codegen 和测试)
-  - `c_generated_code` 是 git-ignored, codegen 结果不会被提交, 但在容器内持久存在
-  - 修改的文件: `mid_mpc_acados_solver.cpp`(d_min fix + heading schedule), `test_mid_mpc_solver.cpp`(bprime test 修复), `M5_MPC_业务流程分层架构.md`(§12 更新)
-  - 未提交: 上述 3 个文件 + workspace_log.md
+  1. ✅ **Codegen re-run**(NSH=0, NP=211, NH=20): 方案 B 完全生效, NSH=0(无 slack), NP=211
+  2. ✅ **d_min fix**: constraints_satisfied_ 中 d_min 移出 is_relaxed guard, 全 stage 正确扫描
+  3. ✅ **Heading/ROT schedule 分离**: heading 按 k_head_earliest 延迟硬化, ROT/speed 全 hard
+  4. ✅ **DP-03 b' test 修复**: 5 IPOPT minalt tests 预期值 1→2
+  5. ✅ **Rule14 HO 5000m diagnostic probe**: status=3 (P5 convergence boundary, CPA gap=1852m>>352m)
+- **测试**: 471 tests, 0 failures (36 binaries)
+- **L2 GATE**: ✅ **已关闭**
+- **已知阻塞**: acados 在 CPA gap > 352m 场景无法收敛(P5 结构瓶颈, HPIPM FULL_CONDENSING N=80 QP crash)
+- **下一阶段**: L3(C2) — 三 case 最小数值矩阵验证
+
+### L3 交接提示词(用于新对话)
+
+---
+
+工作目录(权威):
+```
+/home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding
+```
+**分支**: `codex/m5-design-grounding`
+**HEAD**: `afe2f2eba` (L2 GATE closed)
+**worktree clean**
+
+### 7 层架构总进度
+
+| 层 | 状态 | GATE |
+|---|---|---|
+| **L0** 输入守卫 | ✅ 完成 | L0 GATE ✅ |
+| **L1a** OCP 规格冻结 | ✅ 完成 | L1a GATE ✅ |
+| **Step5** nh 抉择 | ✅ 完成(方案 B: nh=20+nsh=0+J_colreg) | Step5 GATE ✅ |
+| **L1b** OCP 语义 | ✅ 完成 | L1b GATE ✅ |
+| **L2** 求解准备 | ✅ **完成** | **L2 GATE ✅ 刚关闭** |
+| **L3** 数值求解 | ⬜ **本对话** | L1+L2 GATE ✅ (可进入) |
+| **L4** 解复核 | ⬜ | 可并行(共享 con_h_expr) |
+| **L5** 输出降级 | ⬜ | L4 GATE |
+
+### L2 关闭时的已知求解器状态
+
+| 场景 | acados 结果 | 根因 |
+|---|---|---|
+| 无目标 | status=0 Converged ✅ | — |
+| 目标 soft band(2100m, cpa_hard=1852) | status=0 Converged ✅ d_min=2100 | L2 heading schedule + hard CPA floor |
+| 远距 target(5000m), no COLREGS | status=2 Infeasible | HPIPM parameter sensitivity(N=80) |
+| Rule14 HO 5000m | status=3 NumericalFailure(SQP iter 1 QP crash) | **P5 收敛边界: CPA gap=1852m >> 352m** |
+| CPA 违反(1800m < cpa_hard) | status=2 Infeasible ✅ 正确拒绝 | 硬约束不可行 |
+| 多目标(RhoCal) | status=2 Infeasible | HPIPM FULL_CONDENSING N=80 瓶颈 |
+| 冷启动首 solve | status=0 ✅ (route_weight 0&1 均收敛) | cold capsule warm-up |
+
+**核心瓶颈**: 98% 时间在 HPIPM QP condense+solve。`qp_solver=FULL_CONDENSING_HPIPM`, `qp_solver_cond_N=80`, `hessian_approx=EXACT`。per SQP iter ~60ms 稳定, 与 history 无关。
+
+### 架构参考(L3 关键)
+
+**§6. L3 数值求解层**(`docs/Design/Architecture Design/M5_MPC_业务流程分层架构.md:203-240`):
+- 模块: 3.1 Linearization, 3.2 QP Builder, 3.3 QP Solver(HPIPM), 3.4 Globalization(MERIT_BACKTRACKING), 3.5 Iterate Updater, 3.6 SQP Loop Controller
+- **F-05**: EXACT Hessian 强不定(condensed H min eig: −2.6e11 / −2.0e11 / −2.9e13, 负特征值 23/6/18), R=0(无控制曲率正则化), NO_REGULARIZE
+- 14-arm 单变量消融全部 raw4 → **任一单项不是 sole root**
+
+**§12 实施总表 L3 项**:
+| 修复点 | 层 | 描述 | 状态 |
+|---|---|---|---|
+| **F-05** EXACT Hessian + R=0 + no-reg 数值 | L3 | L3 单变量矩阵, 三 case 最小数值验证 | ⬜ **待实施** |
+
+**P5 报告**: `docs/superpowers/specs/2026-07-18-m5-p5-acados-convergence-design.md` — 收敛边界证据(§2) + 4 个 follow-up 选项(§9)
+
+### L3 任务(三 case 最小数值矩阵验证)
+
+**GATE 条件**:
+> 三 case raw0 + 独立 KKT;每个数值变量 contribution 可隔离;latency p95 ≤ budget
+
+**三 case 定义**:
+1. **Case A: 无目标纯路径跟踪**(baseline) — 已验证 status=0, 验证 latency p95 是否 ≤ budget
+2. **Case B: 远距目标 CPA gap < 252m**(P5 收敛边界内) — 验证 acados 可靠收敛 + 数值稳定性
+3. **Case C: 近距目标 CPA gap > 352m**(P5 收敛边界外) — 验证 status≠0 正确拒绝;验证 BC-MPC/MRM fallback 路径完整
+
+**L3 操作步骤**:
+
+1. **最小数值矩阵测试**(基于现有 C++ 测试路径, 非 Python probe — P5 §6 发现 Python probe 参数打包/种子发散):
+   ```
+   docker exec codex-m5-p3-sil-nodes-1 bash -c '
+     source /opt/ros/humble/setup.bash && source /opt/ws/install/setup.bash &&
+     cd /opt/ws && timeout 600 ./build/m5_tactical_planner/test_mid_mpc_acados_solver'
+   ```
+   需 ~500s。18 tests, 已有 7 个 solve 类测试覆盖部分 case。
+
+2. **profile 诊断**(可选, worktree-local M5_ACADOS_PROFILE 宏):
+   - 在 CMakeLists.txt + mid_mpc_acados_solver.cpp(54 行, git-ignored)中启用
+   - 容器 rebuild: `colcon build --cmake-args -DM5_USE_ACADOS=ON -DM5_ACADOS_PROFILE=ON`
+   - 输出每 solve 的 qp_call/lin/reg/sim/glob 时间分解
+
+3. **F-05 数值变量消融**(在正确 OCP 上重跑 14-arm 消融):
+   - `PARTIAL_CONDENSING_HPIPM` vs `FULL_CONDENSING_HPIPM`
+   - `hessian_approx=GAUSS_NEWTON` vs `EXACT`
+   - `globalization=FUNNEL` vs `MERIT_BACKTRACKING`(P5 §9 R3)
+   - `with_adaptive_levenberg_marquardt=true`(P5 §9 R3)
+   - `qp_solver_cond_N < 80` (减少 condensing 规模)
+   - `nlp_solver_type=RTI` vs `SQP`
+
+**Pitfalls(必读)**:
+- **P5 报告 §6 关键警告**: Python acatos_template probes 不可靠(C++ 与 Python 参数打包/种子发散) — 所有数值验证必须用 C++ 测试路径
+- `kAcadosNt` 是 namespace 作用域字面量 16(非 class member)
+- codegen 配置在 `gen_mid_mpc_acados.py`, 修改后必须容器内 re-run
+- container restart 后需 sleep 24s 等 ROS2 服务
+- `FULL_CONDENSING_HPIPM` 单 QP condense+solve 占 98% 时间, per SQP iter ~60ms
+- EXACT Hessian 强不定是已知问题(not sole root, 但可能是主要数值病源)
+
+### P5 follow-up 选项(§9)
+
+| 选项 | 工作量 | 风险 | 预期效果 |
+|---|---|---|---|
+| **R1**: 接受收敛边界, 靠 BC-MPC/MRM fallback | 低 | 低 | 现状, 不修复 |
+| **R2**: 全展开 formulation(N=80 展开到 L1 IPOPT 风格) | 中 | 高(代码量+维护) | N=8 收敛, N=80 未知 |
+| **R3**: adaptive LM + funnel globalization | 中 | 中(acados 原生支持, 未验证) | 目标直接改善 merit-function trap |
+| **R4**: 替换 exp-barrier COLREG 代价(有界 Hessian) | 高 | 高(重新训练 weight) | 消除 J_colreg 非线性 |
+
+R3 是 P5 推荐的中等工作量选项。L3 阶段可在正确 OCP 上 A/B 测试。
+
+### 验收标准
+- [ ] Case A: 无目标 status=0, solve < budget(目标 60s)
+- [ ] Case B: CPA gap < 252m 收敛(status=0)
+- [ ] Case C: CPA gap > 352m 正确拒绝(status≠0)
+- [ ] 至少一次消融对比(FULL vs PARTIAL CONDENSING 或 EXACT vs GAUSS_NEWTON)
+- [ ] 471 tests 全绿
+- [ ] §12 更新 L3 状态
