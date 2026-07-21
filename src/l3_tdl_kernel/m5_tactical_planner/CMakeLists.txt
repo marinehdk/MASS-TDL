@@ -156,6 +156,7 @@ set(M5_SHARED_SOURCES
   src/gnc_preflight.cpp
   # --- common/ ---
   src/common/error.cpp
+  src/common/l0_guards.cpp
   src/common/types.cpp
   src/common/units.cpp
   src/common/time_alignment.cpp
@@ -615,6 +616,65 @@ if(BUILD_TESTING)
 	  m5_add_gtest(test_l0_input_guards
 	    test/unit/test_l0_input_guards.cpp
 	  )
+
+  # ── 7-layer regression baseline (2026-07-21): L0/L1/L2 contract tests + ────
+  #    G+H regression scan. See docs/superpowers/specs/2026-07-21-m5-7layer-
+  #    contract-test-design.md. The contract tests are pure-function (L0) or
+  #    codegen+formulation-driven (L1/L2); the regression scan needs acados
+  #    solve() so it is gated on M5_HAS_ACADOS.
+  m5_add_gtest(test_l0_contracts
+    test/unit/test_l0_contracts.cpp
+  )
+
+  if(M5_HAS_CASADI)
+    m5_add_gtest(test_l1_contracts
+      test/unit/test_l1_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    target_compile_definitions(test_l1_contracts PRIVATE
+      "M5_L1_SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
+    # L1 codegen fixture runs gen_mid_mpc_acados.py in SetUp; ~30s codegen +
+    # 11 tests; give it generous headroom.
+    set_tests_properties(test_l1_contracts PROPERTIES TIMEOUT "300")
+    # CasADi dlopen(RTLD_DEEPBIND) + ASAN incompatibility (mirrors existing
+    # CasADi test exceptions in the Debug block below).
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l1_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l1_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+
+    m5_add_gtest(test_l2_contracts
+      test/unit/test_l2_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_l2_contracts PROPERTIES TIMEOUT "300")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l2_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l2_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+  endif()
+
+  if(M5_HAS_ACADOS)
+    # G+H scan: shared capsule + max_iter_diagnostic override. Codegen fixture
+    # runs first (~30s), then shared solver warm-up (~25s), then 4 scan tests.
+    # Worst-case budget per spec: ~116s. TIMEOUT 240s gives scan headroom for a
+    # cold machine.
+    m5_add_gtest(test_regression_scan
+      test/unit/test_regression_scan.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_regression_scan PROPERTIES TIMEOUT "600")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_regression_scan PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_regression_scan PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+  endif()
 	
 	  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
 

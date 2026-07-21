@@ -789,6 +789,73 @@ bool MidMpcAcadosSolver::debug_constraints_satisfied_after_solve(
 }
 
 // ===========================================================================
+// 7-layer regression-baseline diagnostic interfaces (2026-07-21). TEST-ONLY.
+// See header doc comment for the full rationale + production-caller contract.
+// ===========================================================================
+
+// TEST-ONLY (G+H scan H plan): cap the SQP max_iter for the diagnostic scan so
+// the 8-point regression sweep stays under the 120s budget (MAX_ITER fails are
+// the slow case; 100 iter vs 400 iter cuts ~9 s per failing case). Writes via
+// ocp_nlp_solver_opts_set into the SAME nlp_opts handle solve() reads. The ctor
+// warm-up already ran at the codegen default (400), so the override only takes
+// effect from the NEXT solve() call onward. max_iter<=0 is rejected (no-op +
+// warn) so a buggy test cannot accidentally zero the budget and trip a QP error.
+void MidMpcAcadosSolver::debug_set_max_iter_diagnostic(int max_iter) {
+  if (max_iter <= 0) {
+    spdlog::warn("[M5][MidMPC][acados] debug_set_max_iter_diagnostic ignored "
+                 "non-positive max_iter={}", max_iter);
+    return;
+  }
+  void* nlp_opts = m5_mid_mpc_acados_acados_get_nlp_opts(impl_->capsule);
+  if (nlp_opts == nullptr) {
+    spdlog::warn("[M5][MidMPC][acados] debug_set_max_iter_diagnostic: "
+                 "nlp_opts null; capsule not created?");
+    return;
+  }
+  int mi = max_iter;
+  ocp_nlp_solver_opts_set(impl_->cfg, nlp_opts, "max_iter", &mi);
+}
+
+// TEST-ONLY (L2-T1): read back per-stage lbx/ubx so the heading-delayed-to-
+// k_head_earliest schedule (mid_mpc_acados_solver.cpp:1483-1499) can be asserted
+// WITHOUT a friend hook into the Impl. Returns NaN-filled on out-of-range stage
+// (defensive — the test asserts finite values on valid stages).
+//
+// COMPACT-ARRAY SEMANTICS (verified in-container 2026-07-21): acatos stores
+// lbx/ubx as COMPACT arrays of length NBX (3 here: idxbx=[2,3,4] selects the
+// psi/rot/spd slots; px/py are unbounded and not in the array). The production
+// solver write at mid_mpc_acados_solver.cpp:1497 passes a length-5 array, but
+// acatos only reads the first NBX=3 entries — so the write semantics match the
+// compact-array read (the first 3 entries are the bounds for idxbx slots in
+// order). We therefore return the 3 compact entries as {psi, rot, spd} lb/ub.
+MidMpcAcadosSolver::StageBounds
+MidMpcAcadosSolver::debug_get_stage_bounds(int stage) const noexcept {
+  StageBounds out;
+  if (stage < 0 || stage > kAcadosN) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    out.psi_lb = nan; out.psi_ub = nan;
+    out.rot_lb = nan; out.rot_ub = nan;
+    out.spd_lb = nan; out.spd_ub = nan;
+    return out;
+  }
+  // Compact lbx/ubx of length NBX=3 (psi, rot, spd) per codegen idxbx=[2,3,4].
+  // Reading into a 5-length buffer is safe (acatos writes 3 doubles; extras
+  // stay 0); the read below uses the first 3 only.
+  constexpr int kNbx = 3;
+  double lbx[kNbx] = {0, 0, 0};
+  double ubx[kNbx] = {0, 0, 0};
+  ocp_nlp_constraints_model_get(impl_->cfg, impl_->dims, impl_->in, stage,
+                                "lbx", lbx);
+  ocp_nlp_constraints_model_get(impl_->cfg, impl_->dims, impl_->in, stage,
+                                "ubx", ubx);
+  // Compact order = idxbx order = [psi(2), rot(3), spd(4)].
+  out.psi_lb = lbx[0]; out.psi_ub = ubx[0];
+  out.rot_lb = lbx[1]; out.rot_ub = ubx[1];
+  out.spd_lb = lbx[2]; out.spd_ub = ubx[2];
+  return out;
+}
+
+// ===========================================================================
 // F1 warm-start seed: forward-propagate the Path B 5-dim double-integrator
 // dynamics from own_ship using a gentle δ/n sequence. A ZERO seed yields an
 // ill-conditioned first QP (P1b-1a finding); the seed must be a trajectory the
@@ -1492,8 +1559,33 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
                                          ? use_hdg_min : kDefaultHdgMin;
         const double stage_hdg_max = (hdg_differs && k >= sched.k_head_earliest)
                                          ? use_hdg_max : kDefaultHdgMax;
-        double lbx[kAcadosNx] = {-kUhInf, -kUhInf, stage_hdg_min, -use_rot_max, use_spd_min};
-        double ubx[kAcadosNx] = {kUhInf,  kUhInf,  stage_hdg_max,  use_rot_max, use_spd_max};
+        // DP-02 box live write (LR-01 fix, 2026-07-21): write a COMPACT lbx/ubx
+        // array of length NBX=3 matching the codegen idxbx=[2,3,4] = (psi, rot,
+        // spd). The earlier length-5 array (kAcadosNx) was a silent contract
+        // violation: ocp_nlp_constraints_model_set("lbx", ptr) reads ONLY the
+        // first NBX entries and maps them to the idxbx slots in order. The
+        // length-5 form {-kUhInf, -kUhInf, hdg_min, -rot_max, spd_min} made
+        // acatos read {-kUhInf, -kUhInf, hdg_min} → state[2]=psi got -kUhInf
+        // (unbounded, intended hdg_min lost), state[3]=rot got -kUhInf
+        // (unbounded), state[4]=spd got hdg_min (completely wrong). px/py are
+        // NOT in idxbx and stay unbounded regardless; the explicit -kUhInf
+        // entries in the old form were inert (never read).
+        //
+        // Verified in-container 2026-07-21 via direct ocp_nlp_constraints_
+        // model_set/get probe: len-3 write reads back identically; len-5 write
+        // reads back as [ptr[0], ptr[1], ptr[2]] (silent truncation). The
+        // production write now matches the codegen write at
+        // acatos_solver_m5_mid_mpc_acados.c:687-700 (compact NBX=3 array).
+        //
+        // Impact: with the length-5 form, the live heading box from M4 NEVER
+        // reached the NLP — psi was unbounded at every path stage whenever M4
+        // supplied a non-default box. The L1-T4 / L2-T1 contract tests caught
+        // this; the regression scan (8 points) was all raw=4 (QP error from
+        // unbounded psi → min_alt row violation). After this fix the live box
+        // lands correctly and the scan converges (matches P4 baseline).
+        constexpr int kNbx = 3;  // NBX at path stages (idxbx=[2,3,4]=psi,rot,spd).
+        double lbx[kNbx] = {stage_hdg_min, -use_rot_max, use_spd_min};
+        double ubx[kNbx] = {stage_hdg_max,  use_rot_max, use_spd_max};
         ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k, "lbx", lbx);
         ocp_nlp_constraints_model_set(impl_->cfg, impl_->dims, impl_->in, k, "ubx", ubx);
       }

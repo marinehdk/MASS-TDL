@@ -4944,3 +4944,261 @@ R3 是 P5 推荐的中等工作量选项。L3 阶段可在正确 OCP 上 A/B 测
 - **Results**: 474/474 tests all green; Case A status=0 < 60s; solver convergence boundary shifted post-L2 (gap=352m now converges)
 - **Key finding**: L2 heading/ROT schedule + box live improvements extended the P5 convergence boundary from gap=352m to beyond 352m. MERIT_BACKTRACKING baseline confirmed as production choice.
 - **Next**: L4 (F-01 status fail-closed, h_fn rebuild)
+
+---
+
+## [2026-07-21] Agent: ZCode (codex/m5-design-grounding @ fb84701b1) — 7 层回归基线诊断 + v4 contract test 设计
+
+### Task Goal
+回应用户 handoff(2026-07-21):之前 L0~L3 每层标 "✓ GATE closed" 但从未做过真正的回归测试。**本对话**:用 systematic-debugging Phase 1 建立可信基线 + 设计分层 contract test,定位退化源。
+
+### 核心调查结果(已 codegen-verified,高信心)
+
+**P4 baseline 可信**:
+- commit `2c031bc49` 上独立 capsule scan(8 点),结果与 P5 §2 表**精确吻合**:
+  - gap -548~+252 全部 raw=0(Converged)
+  - gap +352 raw=4(QP error recovered, mapped NumericalFailure)
+- 这证实 P5 §2 表是**真基线**,不是偶发结果
+
+**L3 HEAD 退化真实存在**(commit `fb84701b1`):
+- 用 verified-correct codegen(容器内 fresh `gen_mid_mpc_acados.py` 产出 NSH=0/NP=211/NH=20)重跑 scan
+- 退化**仍然存在**:
+  - gap -548~+152 全部 raw=2 sqp=400(退化)
+  - gap +252/+352 raw=4 sqp=2~4(收敛,post-L2 改善)
+- **退化形态 = 收敛带反转**,不是单调边界右移 → 典型的层间耦合迹象
+
+**关键 finding F7(raw status 语义)**:
+- raw=2 是 acatos `MAX_ITER`(SQP 跑满 400 iter 未收敛),**不是** QP infeasible
+- wrapper line 116-118 把 raw=2 映射成 `Status::Infeasible`,**这是误导性命名**
+- 归因时必须看 **raw**,不看 mapped status
+- L3 HEAD 的退化本质是"SQP 不收敛",不是"QP 不可行"
+
+### 我犯的错(已纠正,记录以防再犯)
+
+1. **F1 误判**: 一开始把 "stale codegen artifact" 列为 critical,暗示 "L1 GATE closed 是假象"。实地验证后发现:仓库 `c_generated_code/` 是 **git-ignored**(`git ls-files` 返回空),不存在 "committed stale" 问题。实际是 "codegen-state 依赖风险"(谁上次跑 codegen 决定 .so 内容)。**F1 已降级到中**。
+
+2. **scan 加速低估**: 一开始推荐 D 方案(缩点+顺序 scan,~90-120s),用户挑战"没有更高效方案吗?"。认真挖掘后找到 G+H:
+   - **G**: 共享 capsule via `::testing::Environment`(gtest 全局 fixture),让所有 scan 点共享 1 个 solver(1 次 warm-up ~25s,而不是 9 次 ~225s)
+   - **H**: wrapper 加 `set_max_iter_diagnostic(int)` friend(仅 diagnostic path),scan 时设 max_iter=100(从 400 降),MAX_ITER fail case 从 ~35s 降到 ~10s
+   - **时间预算**: G+H 组合 ~85s < 120s ✓
+
+3. **L0 friend hook 不可行**: 一开始计划用 `friend class L0AssembleInputTestAccess` 访问 `assemble_input_`。Phase A 开始前发现 `MidMpcNode` 构造函数加载 yaml + 建 IPOPT/acados formulation + 创建 ROS2 subscriptions,**单元测试构造它太重**。改为**抽纯函数**(v4)。
+
+4. **scan 当 GATE 的方法论错误**: 用户在 handoff 里已批评,本对话确认。scan 是**系统级探针**,跨过 L0~L5 全部层,退化时无法定位层。必须改为分层 contract test。
+
+### v4 设计(已写入 spec 文档,已获用户批准核心方向)
+
+**spec 文档**: `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md`
+
+**核心方法**: 每层补真正的 contract test(L0/L1/L2 颗粒度,不细跟每次 commit)。
+
+**改动清单**:
+| 文件 | 动作 |
+|---|---|
+| `test/unit/test_l0_contracts.cpp` | 新建,~12 tests |
+| `test/unit/test_l1_contracts.cpp` | 新建,11 tests |
+| `test/unit/test_l2_contracts.cpp` | 新建,5 tests |
+| `test/unit/test_regression_scan.cpp` | 新建,G+H scan,4 tests |
+| **`common/l0_guards.hpp/cpp`(新)** | 新建,9 纯验证函数(跟随 `validate_speed_box` 模式) |
+| `mid_mpc_node.cpp` | 微重构:assemble_input_ 内联验证改为调 l0_guards 纯函数(**行为完全不变**) |
+| `mid_mpc_acados_solver.hpp/cpp` | 加 `set_max_iter_diagnostic(int)` + `debug_get_stage_bounds()` debug getter |
+| `CMakeLists.txt` | 注册 4 个新 test binary + l0_guards 库 |
+
+**用户已确认的决策**:
+- ✅ 颗粒度 = L0/L1/L2 三层(不跟每次 commit)
+- ✅ 先补 contract test,通过后再补并行 scan
+- ✅ scan 预算 = 120s,用 G+H 方案(~85s)
+- ✅ L0-T4 写成 RED test(显式证伪 "L0 GATE closed":degradation flag write-only)
+- ✅ 接受 2 处 solver debug 接口(set_max_iter_diagnostic, debug_get_stage_bounds)
+- ✅ L0 用抽纯函数(不用 friend hook)
+- ✅ L1 codegen 在 test SetUp 里 re-codegen(最安全)
+- ✅ 逐 Phase 实施,每 Phase 确认
+
+### 7 个代码考古 finding(三只并行 Explore agent 结论)
+
+| ID | 发现 | 严重度 |
+|---|---|---|
+| F1 | codegen-state 依赖风险(git-ignored,取决于上次 codegen) | 中 |
+| F2 | L0 degradation flag write-only(L1/L4/LX 从不读) | 高 |
+| F3 | L0-B 没有 box_reach_side==pref_dir_side assertion(只是 warn+flag) | 中 |
+| F4 | L1b schedule 是 bound-based 不是 idxsh-based | 中 |
+| F5 | NP 命名歧义 + 注释 stale(solver.cpp:1148 说 np_global=106,实际 155) | 低 |
+| F6 | HeadOn5000m_GiveWayStarboard_Converges 测试名字撒谎(不断言收敛) | 中 |
+| F7 | raw=2 是 MAX_ITER 不是 Infeasible(wrapper 误导性命名) | 高 |
+
+### Pitfalls(下次必读)
+
+1. **P5 §2 表是可信基线**: 我独立复现了。不要再质疑它的真实性。
+2. **`c_generated_code/` git-ignored**: 每次切 commit 后必须重跑 codegen + make shared_lib + colcon build。容器 bind-mount `/opt/ws/src` 到 host worktree,host 的 git checkout 自动反映到容器。
+3. **raw status 语义**: 看 raw,不看 mapped。raw=0=Converged, raw=2=MAX_ITER, raw=4=QP error recovered。
+4. **scan 慢的原因**: 每个 TEST_F fresh capsule = cold warm-up(~25s,占 60%) + fail case 跑满 400 iter(~35s,占 35%)。G+H 方案同时解决两个瓶颈。
+5. **MidMpcNode 构造太重**: 加载 yaml + 建 formulation + ROS2 subscriptions。单元测试不要构造它,用纯函数。
+6. **build BUG-BUILD-01**: `mid_mpc_node.cpp:1411` `#ifdef M5_USE_ACADOS` 块引用未实现方法(last_nlp_backend 等),这是 pre-existing 问题,L1a batch2 commit `a283fd1b0` 已用 `#if 0` 注释掉。切到更早 commit(如 L0 `6a0c12f3b`)时需要手动应用相同 bypass。
+7. **L0 degradation flag 是 dead code**: 文档说下游消费,实际无人读。L0-T4 RED test 会显式暴露这个。
+
+### Handoff Notes(给下次对话)
+
+- **容器 `codex-m5-p3-sil-nodes-1`** 还活着(12h+),继续用,不重启
+- **HEAD `fb84701b1`** 是诊断基线(包含错误的"L3 GATE closed"声称,待纠正)
+- **spec 文档** `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md` 是 v4 设计权威
+- **scripts/diag-bisect-scan.sh** 是 bisect 辅助脚本(未提交,untracked)
+- **worktree 干净**: 只有 2 个 untracked 文件(spec 文档 + bisect 脚本)
+
+### Next Steps(新对话核心提示词)
+
+```
+Continue from codex/m5-design-grounding at HEAD fb84701b1.
+Worktree: /home/marine.huang/Code/mass-l3/.worktrees/m5-design-grounding
+Container: codex-m5-p3-sil-nodes-1 (alive, do NOT restart)
+
+已完成(Phase 1 调查):
+- ✅ P4 baseline 可信(2c031bc49 scan 复现 P5 §2 表)
+- ✅ L3 HEAD 退化真实(codegen-verified: gap -548~+152 全 raw=2 MAX_ITER)
+- ✅ 7 个代码考古 finding(F1-F7,见 spec 文档 §1)
+- ✅ v4 设计稿(docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md)
+- ✅ 用户已批准核心方向(L0/L1/L2 颗粒度,G+H scan,L0-T4 RED,2 处 debug 接口)
+
+未完成(下次 Phase A 开始):
+- [ ] Phase A: 创建 common/l0_guards.hpp/cpp(9 纯函数)+ assemble_input_ 微重构
+- [ ] Phase A: 加 set_max_iter_diagnostic + debug_get_stage_bounds 到 solver
+- [ ] Phase A 验证: rebuild + existing test suite 全绿(行为不变)
+- [ ] Phase B: L0 contract tests(~12 tests)
+- [ ] Phase C: L1 codegen fixture + L1a tests(T1-T6)
+- [ ] Phase D: L1b tests(T7-T11)
+- [ ] Phase E: L2 contract tests
+- [ ] Phase F: Regression scan(G+H,~85s)
+- [ ] Phase G: 跑全部,记录 RED/GREEN,写诊断报告
+
+排查链路总结:
+1. scan GAP 是系统级探针,不是分层 GATE → 必须改为分层 contract test
+2. P4 baseline 可信(独立复现) → L3 HEAD 退化真实
+3. 退化形态 = 收敛带反转 → 层间耦合迹象(某层 schedule 挪了 SQP 收敛路径)
+4. raw=2 是 MAX_ITER → 归因看 raw 不看 mapped
+5. L0 degradation flag write-only → L0 GATE closed 是假象,L0-T4 RED 暴露
+
+下一步建议:
+1. 读 spec 文档 docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md(v4)
+2. 启动 Phase A:创建 l0_guards.hpp/cpp + assemble_input_ 微重构
+3. Phase A 完成后给用户看 diff + existing test suite 结果,再进 Phase B
+
+关键文件:
+- 设计稿: docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md
+- 架构文档: docs/Design/Architecture Design/M5_MPC_业务流程分层架构.md
+- P5 报告: docs/superpowers/specs/2026-07-18-m5-p5-acados-convergence-design.md
+- solver: src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_acados_solver.cpp
+- assemble_input_: src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp:510
+- codegen: src/l3_tdl_kernel/m5_tactical_planner/test/external/acados_backend/gen_mid_mpc_acados.py
+- 现有 L0 test: src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_l0_input_guards.cpp
+- bisect 脚本(未提交): scripts/diag-bisect-scan.sh
+
+诊断输出位置(Phase G 写):
+- docs/superpowers/review/2026-07-21-m5-7layer-regression-baseline.md
+
+禁止的捷径:
+- ❌ 用 mock/skip/forced-pass 掩盖退化
+- ❌ 用"方法论不公平"等借口解释退化
+- ❌ 在未完成诊断前就修改 codegen 或 solver production 路径
+- ❌ 在未完成诊断前就更新 GATE 状态文档(§6/§9/§10/§12)
+- ❌ 改 production solve() 路径行为(诊断阶段)
+- ❌ 写 vessel/scenario-specific 分支
+```
+
+---
+
+## 2026-07-21 (Phase A-G 完成) — 7 层 contract test 实施
+
+**状态**: DONE_WITH_CONCERNS(诊断阶段任务完成,4 个有意 RED test 保留为 finding 证据)
+
+### 已完成
+
+- **Phase A**: l0_guards.hpp/cpp(9 纯函数)+ assemble_input_ 行为保持重构 + 2 solver debug 接口 + CMakeLists
+- **Phase B**: L0 contract test (37/37 PASS)
+- **Phase C+D**: L1 contract test (11 tests,9 PASS + 2 RED finding)
+- **Phase E**: L2 contract test (5 tests,3 PASS + 2 RED finding)
+- **Phase F**: G+H regression scan (4/4 PASS,~36s << 120s budget)
+- **Phase G**: 诊断报告 + 架构文档 §6/§9/§10/§12 纠正
+
+### 新发现(本轮揭示)
+
+1. **LBX-len5 缺陷(P0,HIGH)**: `mid_mpc_acados_solver.cpp:1495-1498` 把长度 5 的 lbx 数组传给 acatos,但 acatos `ocp_nlp_constraints_model_set("lbx", ...)` 只读 NBX=3 → psi 实际无 bound,heading box 写入从未落地。**这证伪了 commit fb84701b1 "L3 GATE closed"**。证据:in-container probe 确认 + L1-T4/L2-T1 RED tests。
+2. **F2 持续(P2)**: `InputDegradation` flag 在 solver 仍 write-only(`grep -c "degradation\." mid_mpc_acados_solver.cpp == 0`)。L0-T4 RED test 显式证伪 "L0 GATE closed"。
+3. **soft_aspiration telemetry 缺失(P3)**: `soft_aspiration_d_min_m` 仅 Converged 时填充,NumericalFailure 出口无信号。L2-T2 RED。
+
+### 测试套件状态
+
+- colcon test: **39/41 PASS(95%)** — 2 failures 均为有意保留的 RED finding test。
+- 所有现有测试无回归(Phase A.2 assemble_input_ 重构行为保持)。
+
+### 关键文件
+
+- 诊断报告: `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-report.md`
+- 设计稿: `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md`
+- 新增 test: `test/unit/test_l0_contracts.cpp` / `test_l1_contracts.cpp` / `test_l2_contracts.cpp` / `test_regression_scan.cpp`
+- 纯函数: `include/m5_tactical_planner/common/l0_guards.hpp` + `src/common/l0_guards.cpp`
+- solver debug 接口: `mid_mpc_acados_solver.hpp/cpp` 的 `debug_set_max_iter_diagnostic` + `debug_get_stage_bounds`
+
+### 下一 task 建议
+
+- **P0**: 修 LBX-len5 缺陷(改长度 3 紧凑数组;L1-T4/L2-T1 自动转 GREEN)
+- **P1**: 重跑 P4 14-arm 消融,定真正收敛边界
+- **P2**: L0 degradation flag 下游消费(L0-T4 RED → GREEN)
+- **P3**: soft_aspiration 全出口填充
+
+### 禁止项遵守情况
+
+- ✅ 未做任何 bug 修复(spec §7)
+- ✅ 未改 production solve() 行为(max_iter override 只走 diagnostic path)
+- ✅ 未写 vessel/scenario-specific 分支
+- ✅ 4 个 RED test 保留为 finding 证据,不用 mock/skip/forced-pass 掩盖
+
+---
+
+## 2026-07-21 (续) — LBX-len5 修复 + scan 诚实 RED
+
+**状态**: DONE_WITH_CONCERNS(LBX-len5 真 bug 已修,但 scan 仍 RED — 暴露了更深的 L3 HEAD solver 退化)
+
+### 本轮完成
+
+- **systematic-debugging Phase 1-4**: 严格验证 LBX-len5 根因(in-container C++ probe 直接测 acatos `model_set` 语义)
+- **LBX-len5 production fix**(`mid_mpc_acados_solver.cpp:1562-1565`): 长度 5 → 长度 3 紧凑数组(对齐 idxbx=[2,3,4])
+- **L1-T4 / L2-T1 contract test 转 GREEN**: live heading box 现在正确写入 psi slot
+- **L1 全部 11/11 PASS**(原 9/11,2 RED 转 GREEN)
+- **scan 场景设计错误修复**: 去掉 lateral_active 误激活 + 改 target 放置到 y_m + 撤销 max_iter=100 cap
+
+### 没有达成: scan 完整 PASS
+
+- S-T2(gap=+52)RED: P4 baseline raw=0/sqp_iter=129,HEAD raw=2/sqp_iter=400(MAX_ITER)
+- S-T3(gap=+252)RED: P4 baseline raw=0/sqp_iter=12,HEAD raw=3(QP fail at iter 1)
+- S-T1/S-T4 PASS(log-only + 文档化,不 assert 收敛)
+
+### 真实根因(不是 LBX-len5)
+
+L3 HEAD 的 SQP 收敛行为退化了。P4 在 gap ≤ +152 时 ~110-150 iter 收敛;HEAD 在 400 iter 都不收敛(收敛带反转)。既有 production test `PerTargetBreakdown_OneTargetSlackPositive` 也跑出 status=2(只是断言放过了)。这与 spec §0 提示词预测的 "HEAD 全 raw=2 sqp=400" 完全吻合。
+
+调查这个退化超出 spec §7 诊断阶段范围,需要专门 task:
+- git bisect 找转折 commit
+- 对比 P4 (2c031bc49) vs HEAD (fb84701b1) 的 solver/formulation diff
+- 怀疑 Step5 方案 B(nsh=0 + J_colreg barrier)的 cost landscape 病态
+
+### colcon test 当前状态(诚实)
+
+| test suite | 通过 | 失败 | 备注 |
+|---|---|---|---|
+| test_l0_contracts | 37/37 | 0 | ✅ |
+| test_l1_contracts | 11/11 | 0 | ✅(原 9/11,LBX-len5 修后全 GREEN) |
+| test_l2_contracts | 4/5 | 1 | L2-T2 RED(soft_aspiration telemetry,与 LBX-len5 无关) |
+| test_regression_scan | 2/4 | 2 | S-T2/S-T3 RED(L3 HEAD solver 退化证据) |
+| 其他既有测试 | 不变 | 不变 | LBX-len5 修复未引入回归 |
+
+### 关键文件改动
+
+- `src/mid_mpc/mid_mpc_acados_solver.cpp:1556-1588`: LBX-len5 production fix(长度 3 紧凑数组)
+- `test/unit/test_regression_scan.cpp`: scan 场景对齐 P4 baseline + 严格 raw==0 断言(诚实 RED)
+- `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-report.md`: 附录 H(完整修复 + 退化分析)
+
+### 禁止项遵守
+
+- ✅ LBX-len5 fix 经过 systematic-debugging Phase 1-4 完整流程(in-container probe 验证)
+- ✅ scan 没有用假 PASS 掩盖退化(用户选了"诚实保留 RED")
+- ✅ 未改 codegen default / solver production 路径之外的代码
+- ✅ 未写 vessel/scenario-specific 分支

@@ -20,6 +20,7 @@
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_policy.hpp"
 #include "m5_tactical_planner/avoidance_route_hash.hpp"
+#include "m5_tactical_planner/common/l0_guards.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/common/units.hpp"
@@ -42,9 +43,13 @@ namespace mass_l3::m5::mid_mpc {
 namespace tb = mass_l3::m5::tail_builder;
 
 namespace {
-// [TBD-HAZID] Safe CPA distance [m] used when ODD state is unavailable.
-// Calibrate via HAZID RUN-001 WP-03 (SOTIF CPA threshold).
-constexpr double kCpaSafeFallback_m = 1852.0;
+// L0 pure-function extraction (2026-07-21 7-layer contract test, spec §2):
+// kCpaSafeFallback_m and the per-field validators live in
+// m5_tactical_planner/common/l0_guards.hpp so unit tests can lock the default
+// value (L0-T6) and exercise each fallback branch without constructing
+// MidMpcNode. The earlier anonymous-namespace duplicate (mid_mpc_node.cpp:47)
+// was REMOVED — it would shadow the public symbol and risk ODR drift between
+// the production value and the value under test.
 
 // [TBD-HAZID] Default planned speed [m/s] when speed profile is absent.
 // Set to nominal cruise speed from scenario YAML (10 kn for FCB imazu tests).
@@ -403,11 +408,11 @@ MidMpcNode::MidMpcNode(const Config& cfg)
 
 	  // L0-C: CPA hard floor [m]. Calibrate via odd_aware_thresholds.yaml cpa_hard_m.
 	  // Validation: non-positive or non-finite → warn + fallback to hardcoded default.
-	  cpa_hard_m_ = declare_parameter<double>("m5.cpa_hard_m", kCpaSafeFallback_m);
+	  cpa_hard_m_ = declare_parameter<double>("m5.cpa_hard_m", mass_l3::m5::kCpaSafeFallback_m);
 	  if (!std::isfinite(cpa_hard_m_) || cpa_hard_m_ <= 0.0) {
 	    spdlog::warn("[M5][MidMPC][L0-C] invalid cpa_hard_m={}; "
-	                 "fallback to hardcoded {} m + degraded", cpa_hard_m_, kCpaSafeFallback_m);
-	    cpa_hard_m_ = kCpaSafeFallback_m;
+	                 "fallback to hardcoded {} m + degraded", cpa_hard_m_, mass_l3::m5::kCpaSafeFallback_m);
+	    cpa_hard_m_ = mass_l3::m5::kCpaSafeFallback_m;
 	  }
 
 	  sub_world_ = create_subscription<l3_msgs::msg::WorldState>(
@@ -524,30 +529,25 @@ MidMpcInput MidMpcNode::assemble_input_()
   // read inp.own_ship.psi_rad, so wrapping once here fixes all paths.
   // L0-A guard: NaN/Inf heading → fallback 0.0 + degraded flag (never silently
   // propagate a bad value into the NLP; downstream sees the substitution).
-  const double raw_heading_rad =
-      world_state_->own_ship.heading_deg * units::kRadPerDeg;
-  if (!std::isfinite(raw_heading_rad)) {
+  // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:527-536).
+  inp.own_ship.psi_rad = mass_l3::m5::validate_own_heading(
+      world_state_->own_ship.heading_deg, inp.degradation);
+  if (inp.degradation.own_psi_degraded) {
     spdlog::warn("[M5][MidMPC][L0] non-finite own_ship heading_deg={}; "
                  "fallback psi_rad=0.0 + degraded", world_state_->own_ship.heading_deg);
-    inp.own_ship.psi_rad = 0.0;
-    inp.degradation.own_psi_degraded = true;
-  } else {
-    inp.own_ship.psi_rad = mass_l3::m5::normalize_heading_signed(raw_heading_rad);
   }
 
   // L0-A guard: negative/non-finite own speed → fallback 0.0 + degraded.
-  const double u_water = world_state_->own_ship.u_water;
-  const double u_sog_mps = world_state_->own_ship.sog_kn * units::kMsPerKn;
-  if (u_water > 0.1 && std::isfinite(u_water)) {
-    inp.own_ship.u_mps = u_water;
-  } else if (std::isfinite(u_sog_mps) && u_sog_mps >= 0.0) {
-    inp.own_ship.u_mps = u_sog_mps;
-  } else {
-    spdlog::warn("[M5][MidMPC][L0] non-finite/negative own speed "
-                 "(u_water={}, sog_kn={}); fallback u_mps=0.0 + degraded",
-                 u_water, world_state_->own_ship.sog_kn);
-    inp.own_ship.u_mps = 0.0;
-    inp.degradation.own_u_degraded = true;
+  // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:538-551).
+  {
+    const double u_water_prev = world_state_->own_ship.u_water;
+    inp.own_ship.u_mps = mass_l3::m5::validate_own_speed(
+        u_water_prev, world_state_->own_ship.sog_kn, inp.degradation);
+    if (inp.degradation.own_u_degraded) {
+      spdlog::warn("[M5][MidMPC][L0] non-finite/negative own speed "
+                   "(u_water={}, sog_kn={}); fallback u_mps=0.0 + degraded",
+                   u_water_prev, world_state_->own_ship.sog_kn);
+    }
   }
 
   const double own_lat = world_state_->own_ship.position.latitude;
@@ -557,7 +557,9 @@ MidMpcInput MidMpcNode::assemble_input_()
     // L0-A guard: skip targets with non-finite lat/lon (would poison the CPA
     // rows with NaN residuals). Mark degraded so downstream knows a target
     // was dropped this cycle.
-    if (!std::isfinite(tgt.position.latitude) || !std::isfinite(tgt.position.longitude)) {
+    // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:560-564).
+    if (!mass_l3::m5::validate_target_latlon(tgt.position.latitude,
+                                             tgt.position.longitude)) {
       spdlog::warn("[M5][MidMPC][L0] target id={} has non-finite lat/lon ({},{}); "
                    "skipped + degraded", tgt.target_id,
                    tgt.position.latitude, tgt.position.longitude);
@@ -570,14 +572,17 @@ MidMpcInput MidMpcNode::assemble_input_()
     ts.y_m      = (tgt.position.longitude - own_lon) * units::kRadPerDeg * units::kEarthRadiusMean_m
                   * std::cos(own_lat * units::kRadPerDeg);
     // L0-A guard: negative/non-finite sog → clamp to 0.0 + degraded.
-    const double tgt_sog_mps = tgt.sog_kn * units::kMsPerKn;
-    if (!std::isfinite(tgt_sog_mps) || tgt_sog_mps < 0.0) {
-      spdlog::warn("[M5][MidMPC][L0] target id={} non-finite/negative sog_kn={}; "
-                   "fallback sog_mps=0.0 + degraded", tgt.target_id, tgt.sog_kn);
-      ts.sog_mps = 0.0;
-      inp.degradation.target_degraded = true;
-    } else {
-      ts.sog_mps = tgt_sog_mps;
+    // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:573-581).
+    {
+      const double tgt_sog_kn_raw = tgt.sog_kn;
+      const double tgt_sog_mps_check = tgt_sog_kn_raw * units::kMsPerKn;
+      const bool this_target_sog_bad =
+          !std::isfinite(tgt_sog_mps_check) || tgt_sog_mps_check < 0.0;
+      ts.sog_mps = mass_l3::m5::validate_target_sog(tgt_sog_kn_raw, inp.degradation);
+      if (this_target_sog_bad) {
+        spdlog::warn("[M5][MidMPC][L0] target id={} non-finite/negative sog_kn={}; "
+                     "fallback sog_mps=0.0 + degraded", tgt.target_id, tgt.sog_kn);
+      }
     }
     ts.cog_rad  = tgt.cog_deg * units::kRadPerDeg;
     ts.cpa_m    = tgt.cpa_m;
@@ -614,36 +619,33 @@ MidMpcInput MidMpcNode::assemble_input_()
   {
     const double box_reach_deg =
         static_cast<double>(behavior_plan_->heading_box_reachable_from_psi0_deg);
-    if (!std::isfinite(box_reach_deg) || box_reach_deg < 0.0) {
+    // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:614-625).
+    inp.constraints.heading_box_reachable_from_psi0_deg =
+        mass_l3::m5::validate_box_reach(box_reach_deg, inp.degradation);
+    if (inp.constraints.heading_box_reachable_from_psi0_deg != box_reach_deg) {
       spdlog::warn("[M5][MidMPC][L0] non-finite/negative heading_box_reachable={}; "
                    "fallback 0 (degrade to v2.1 ROT-only) + degraded", box_reach_deg);
-      inp.constraints.heading_box_reachable_from_psi0_deg = 0.0;
-      inp.degradation.reachability_degraded = true;
-    } else {
-      inp.constraints.heading_box_reachable_from_psi0_deg = box_reach_deg;
     }
   }
   // rot_step / min_alt / earliest_k: validated independently. Invalid → degrade.
   {
     const double rot_step_deg =
         static_cast<double>(behavior_plan_->rot_step_deg);
-    if (!std::isfinite(rot_step_deg) || rot_step_deg <= 0.0) {
+    // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:628-637).
+    inp.constraints.rot_step_deg =
+        mass_l3::m5::validate_rot_step(rot_step_deg, inp.degradation);
+    if (inp.constraints.rot_step_deg != rot_step_deg) {
       spdlog::warn("[M5][MidMPC][L0] non-finite/non-positive rot_step_deg={}; "
                    "fallback 0 (downstream ROT-reach skips) + degraded", rot_step_deg);
-      inp.constraints.rot_step_deg = 0.0;
-      inp.degradation.reachability_degraded = true;
-    } else {
-      inp.constraints.rot_step_deg = rot_step_deg;
     }
     const double min_alt_rad =
         static_cast<double>(behavior_plan_->min_alt_required_rad);
-    if (!std::isfinite(min_alt_rad) || min_alt_rad < 0.0) {
+    // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:638-647).
+    inp.constraints.min_alt_required_rad =
+        mass_l3::m5::validate_min_alt(min_alt_rad, inp.degradation);
+    if (inp.constraints.min_alt_required_rad != min_alt_rad) {
       spdlog::warn("[M5][MidMPC][L0] non-finite/negative min_alt_required_rad={}; "
                    "fallback 0 + degraded", min_alt_rad);
-      inp.constraints.min_alt_required_rad = 0.0;
-      inp.degradation.reachability_degraded = true;
-    } else {
-      inp.constraints.min_alt_required_rad = min_alt_rad;
     }
 	    const double earliest_k =
 	        static_cast<double>(behavior_plan_->earliest_min_alt_k);
@@ -766,16 +768,24 @@ MidMpcInput MidMpcNode::assemble_input_()
   // inconsistency is benign (research confirmed). This assert catches only
   // gross contract violations (e.g. box_reach > 0 with Hold would mean M4
   // published a nonzero lateral reachability for a non-lateral behavior).
-  if (inp.constraints.heading_box_reachable_from_psi0_deg > 0.0
-      && inp.colregs_conflict_active
-      && inp.colregs_preferred_direction != ColregsPreferredDirection::Starboard
-      && inp.colregs_preferred_direction != ColregsPreferredDirection::Port) {
-    spdlog::warn("[M5][MidMPC][L0] box_reach={:.1f} deg > 0 but pref_dir={} (not "
-                 "Starboard/Port) — M4 contract inconsistency; reachability will "
-                 "be ignored (direction_disabled path). degraded flag set.",
-                 inp.constraints.heading_box_reachable_from_psi0_deg,
-                 static_cast<int>(inp.colregs_preferred_direction));
-    inp.degradation.reachability_degraded = true;
+  // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:769-779).
+  // check_box_reach_pref_dir_consistency sets reachability_degraded when the M4
+  // publish is internally inconsistent; the warn log stays here so the operator
+  // sees the diagnostic on the cycle where the inconsistency was detected.
+  {
+    const bool reach_degraded_pre = inp.degradation.reachability_degraded;
+    mass_l3::m5::check_box_reach_pref_dir_consistency(
+        inp.constraints.heading_box_reachable_from_psi0_deg,
+        inp.colregs_conflict_active,
+        inp.colregs_preferred_direction,
+        inp.degradation);
+    if (inp.degradation.reachability_degraded && !reach_degraded_pre) {
+      spdlog::warn("[M5][MidMPC][L0] box_reach={:.1f} deg > 0 but pref_dir={} (not "
+                   "Starboard/Port) — M4 contract inconsistency; reachability will "
+                   "be ignored (direction_disabled path). degraded flag set.",
+                   inp.constraints.heading_box_reachable_from_psi0_deg,
+                   static_cast<int>(inp.colregs_preferred_direction));
+    }
   }
 
   // Dynamically adjust CPA safe distance based on COLREGs constraint.
@@ -784,11 +794,9 @@ MidMpcInput MidMpcNode::assemble_input_()
   // weighting mechanism. The earlier target.cpa_m/tcpa_s mutation was dead code
   // — the NLP parameter pack does not read those fields (J_colreg redesign,
   // spec §8.2). target cpa_m/tcpa_s now stay at their M2-sourced values.
-  double cpa_safe = kCpaSafeFallback_m;
-  if (inp.colregs_conflict_active) {
-    cpa_safe = 2500.0; // increase CPA boundary during active encounter
-  }
-  inp.constraints.cpa_safe_m       = cpa_safe;
+  // Pure-function extraction: see common/l0_guards.hpp (mid_mpc_node.cpp:787-791).
+  inp.constraints.cpa_safe_m =
+      mass_l3::m5::bump_cpa_safe_for_conflict(inp.colregs_conflict_active);
   // Hard CPA floor is the un-bumped ODD CPA safe (1852), NOT the cost-scaled
   // cpa_safe above. compile_cpa_distance reads cpa_hard_m; the 2500 bump is for
   // the SOFT colreg barrier only (Bug C deep, RC-C; spec §L84).

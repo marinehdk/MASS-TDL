@@ -1183,3 +1183,63 @@ TEST_F(AcadosSolverTest, ConvergenceBoundary_Gap352_Diagnostic) {
             << " (P5 boundary: pre-L2 status=3; post-L2 improved)\n";
 }
 
+// ---------------------------------------------------------------------------
+// Independent (per-scan-point fresh capsule) boundary verification.
+// Each scan point is a separate TEST_F so SetUp() builds a fresh solver
+// (fresh capsule + cold warm-up) for each target_y. This eliminates the
+// cumulative-SQP-state confounder that a single-capsule sequential sweep
+// has. P5 §2 used the sequential form; these independent points are the
+// authoritative post-L2 boundary.
+// ---------------------------------------------------------------------------
+
+#define L3_BOUNDARY_INDEPENDENT_SCAN(pt_y, gap_label) \
+  TEST_F(AcadosSolverTest, DISABLED_IndependentScan_##pt_y##m) { \
+    auto inp = straight_line(); \
+    TargetState ts; \
+    ts.id = 1; ts.x_m = 0.0; ts.y_m = static_cast<double>(pt_y); \
+    ts.sog_mps = 0.0; ts.cog_rad = 0.0; ts.confidence = 1.0; \
+    inp.targets.push_back(ts); \
+    const auto sol = solver_->solve(inp, nullptr); \
+    std::cout << "[ISCAN] target_y=" #pt_y "m gap=" gap_label \
+              << ": status=" << static_cast<int>(sol.status) \
+              << " sqp=" << solver_->last_sqp_iter() \
+              << " cost=" << sol.cost_total \
+              << " dur_ms=" << sol.solve_duration_ms << "\n"; \
+  }
+
+L3_BOUNDARY_INDEPENDENT_SCAN(2400, "-548")
+L3_BOUNDARY_INDEPENDENT_SCAN(2100, "-248")
+L3_BOUNDARY_INDEPENDENT_SCAN(1900, "-48")
+L3_BOUNDARY_INDEPENDENT_SCAN(1852, "0")
+L3_BOUNDARY_INDEPENDENT_SCAN(1800, "+52")
+L3_BOUNDARY_INDEPENDENT_SCAN(1700, "+152")
+L3_BOUNDARY_INDEPENDENT_SCAN(1600, "+252")
+L3_BOUNDARY_INDEPENDENT_SCAN(1500, "+352")
+
+// Sequential single-capsule scan (kept for P5-comparable methodology).
+TEST_F(AcadosSolverTest, DISABLED_ConvergenceBoundary_FullScan) {
+  struct ScanPt { int y; const char* label; };
+  const ScanPt pts[] = {
+    {2400, "gap=-548"}, {2100, "gap=-248"}, {1900, "gap=-48"},
+    {1852, "gap=0"},    {1800, "gap=+52"},  {1700, "gap=+152"},
+    {1600, "gap=+252"}, {1500, "gap=+352"},
+  };
+  for (const auto& pt : pts) {
+    auto inp = straight_line();
+    TargetState ts;
+    ts.id = 1;
+    ts.x_m = 0.0;
+    ts.y_m = static_cast<double>(pt.y);
+    ts.sog_mps = 0.0;
+    ts.cog_rad = 0.0;
+    ts.confidence = 1.0;
+    inp.targets.push_back(ts);
+    const auto sol = solver_->solve(inp, nullptr);
+    std::cout << "[SCAN] target_y=" << pt.y << "m  " << pt.label
+              << "  status=" << static_cast<int>(sol.status)
+              << "  sqp=" << solver_->last_sqp_iter()
+              << "  cost=" << sol.cost_total
+              << "  dur_ms=" << sol.solve_duration_ms << "\n";
+  }
+}
+

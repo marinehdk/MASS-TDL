@@ -138,6 +138,34 @@ class MidMpcAcadosSolver {
   // production misuse is bounded by it being a pure read with no side effects.
   [[nodiscard]] bool debug_constraints_satisfied_after_solve(const MidMpcInput& input);
 
+  // ── 7-layer regression-baseline diagnostic interfaces (2026-07-21) ─────────
+  // TEST-ONLY. Two narrow hooks for the L1/L2 contract tests + the G+H scan
+  // (spec docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-design.md
+  // §3/§4/§5). The production solve() path NEVER calls these; they exist
+  // solely so the diagnostic test binaries can:
+  //   (a) cap SQP max_iter (H plan: shrink 400→100 to keep the 8-point scan
+  //       under the 120s budget; cold warm-up already pays the cost). The
+  //       override writes to nlp_opts via ocp_nlp_solver_opts_set; subsequent
+  //       solve() calls read the new value. Must be called AFTER the ctor
+  //       warm-up (the ctor calls warm_up_capsule_ at the codegen default).
+  //   (b) read per-stage box bounds (lbx/ubx) AFTER a solve() so L2-T1 can
+  //       assert the heading-delayed-to-k_head_earliest schedule. Pure read
+  //       via ocp_nlp_get; returns lbx/ubx for the psi slot (index 2 of nx=5)
+  //       at the requested stage. Production never inspects stage bounds.
+  //
+  // Both are marked `debug_` to make grep audits trivial and are commented
+  // TEST-ONLY. Behavior contracts (no production caller) are enforced by code
+  // review, not by access modifiers (mirrors last_* / debug_constraints_*).
+  void debug_set_max_iter_diagnostic(int max_iter);
+  // Returns {psi_lb, psi_ub, rot_lb, rot_ub, spd_lb, spd_ub} at stage k.
+  // stage must be in [0, kAcadosN]; returns NaN-filled on out-of-range.
+  struct StageBounds {
+    double psi_lb{0.0}; double psi_ub{0.0};
+    double rot_lb{0.0}; double rot_ub{0.0};
+    double spd_lb{0.0}; double spd_ub{0.0};
+  };
+  [[nodiscard]] StageBounds debug_get_stage_bounds(int stage) const noexcept;
+
  private:
   // TEST-ONLY friend (T17 review-fix Step 1): sole non-member allowed to invoke
   // the private CtorOpts ctor with skip_warm_up=true. Production code has no

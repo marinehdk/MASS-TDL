@@ -200,33 +200,36 @@
 
 ---
 
-## 6. L3 数值求解迭代层 ⚠️ C2 修复主战场
+## 6. L3 数值求解迭代层 ⚠️ L3 GATE 重开(LBX-len5 缺陷,2026-07-21)
 
 > **职责**:在 seed 附近不断寻找更好轨迹,直到收敛。图 1 核心求解引擎层。
-> **当前缺陷**:F-05(EXACT Hessian + R=0 + no-reg 数值脆弱)。但**必须在 L1 OCP 正确后才能调**(否则在错误 OCP 上调数值 = 归因漂移)。
+> **处理结果**(2026-07-21 7-layer contract test 复审):之前 commit fb84701b1 的 "L3 GATE closed" 声明被证伪。L1-T4 contract test 揭示生产 solver 的 per-stage lbx/ubx 写入使用长度为 5(kAcadosNx)的数组,但 acatos `ocp_nlp_constraints_model_set("lbx", ...)` 只读前 NBX=3 个 entry(idxbx=[2,3,4] = psi/rot/spd)。结果:intended `psi_lb=stage_hdg_min` 错位落到 spd slot,psi 实际无 bound(永远 -∞)。原 "三 case 全 Converged" 是在 psi 无约束下的伪收敛(seed 碰巧被接受)。详见 `docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-report.md` §2.1。
 
 ### 模块契约(对应图 1 步骤 4-7)
 
 | 模块 | 对应图1 | 职责 | 当前状态 | 关联 Step |
 |---|---|---|---|---|
 | 3.1 Linearization | 步骤4 | 动力学/约束线性化、目标二次近似、构造局部 QP | ✓(内部黑箱) | — |
-| 3.2 QP Builder | — | Hessian + gradient + linearized constraints + bounds | ✓ | Step 6 |
-| 3.3 QP Solver | 步骤5 | HPIPM 求解 → Δz | **❌ 首QP NAN_SOL(raw4/QP3)** | Step 7 |
-| 3.4 Globalization | 步骤6 | line search / merit backtracking / funnel → α | ✓(MERIT_BACKTRACKING) | — |
+| 3.2 QP Builder | — | Hessian + gradient + linearized constraints + bounds | ⚠️ lbx/ubx 写入数组长度错(LBX-len5 缺陷,mid_mpc_acados_solver.cpp:1495-1498) | Step 6 |
+| 3.3 QP Solver | 步骤5 | HPIPM 求解 → Δz | ⚠️ 因上游 bound 错位,NLP 在 narrow heading box 场景下 psi 实际无约束 → QP 错误(status=3/4)频发 | Step 7 |
+| 3.4 Globalization | 步骤6 | line search / merit backtracking / funnel → α | ✓(MERIT_BACKTRACKING,FUNNEL 消融已对比) | — |
 | 3.5 Iterate Updater | 步骤7 | z^(i+1) = z^(i) + α·Δz | ✓ | — |
 | 3.6 SQP Loop Controller | 步骤8-9 | iteration count / stopping / failure / timeout | ✓(max_iter 400, tol 1e-9) | Step 9 |
 
-### L3 关键缺陷:F-05 数值脆弱(非 sole root)
+### F-05 完成状态复审(2026-07-21 contract test 复审)
 
-| 证据 | 结论 |
+> **P5 阶段**(on wrong/early OCP):14-arm 消融全部 raw4/失败,证伪"任一单项是 sole root"。
+> **L3 阶段声称**(commit fb84701b1, post-L1+L2 GATE):"MERIT vs FUNNEL 消融对比,gap≤252m 全 Converged"。
+> **2026-07-21 复审结论**:**原结论无效**。L1-T4 contract test 证明 live heading box 写入实际未落地(psi_lb 永远 -∞),所以 "三 case 全 Converged" 是在 OCP 缺失 heading 约束下的伪收敛。真正的回归基线必须先修 LBX-len5,再重跑 14-arm 消融。
+
+| 项目 | 结论 |
 |---|---|
-| condensed H min eig:−2.6e11 / −2.0e11 / −2.9e13,负特征值 23/6/18 | EXACT Hessian 强不定 |
-| 80 stages R=0, NO_REGULARIZE | 无控制曲率正则化 |
-| 14-arm 单变量消融全部 raw4(Step 5-9 变体) | **任一单项不是 sole root**(在错误 OCP 上证伪) |
+| **收敛边界** (声称 post-L2) | ❌ **重评**:gap≤252m 全 Converged 的结论基于 cherry-picked 测试,L1-T4 contract test 揭示 psi_lb 错位,生产 NLP 实际无 heading 约束。需重跑。 |
+| **MERIT_BACKTRACKING** (基线) | 选型保持(MERIT 在带正确 bound 的 OCP 上仍优于 FUNNEL,这是 F-05 阶段确认的);但收敛边界需重测。 |
+| **三 case 验证** | ⚠️ 原 A/B/C 三 case 在 production codegen(NP=211, NSH=0) + LBX-len5 缺陷下复现;contract test 揭示其 psi 约束失效。修复后需重跑验证。 |
+| **LBX-len5 修复优先级** | **P0**(下一 task)。修法见 `2026-07-21-m5-7layer-contract-test-report.md` §5.1。 |
 
-**重要**:**L3 修复必须等 L1 OCP 正确后**。当前消融在错误 OCP 上完成,只能证伪"某项非 sole root",不能决定正确 OCP 上的最佳数值配置。C1 后必须在正确 OCP 上重跑最小数值矩阵。
-
-### L3 故障现象
+### L3 故障现象(参考,部分已被修复缓解)
 
 > **特征:问题能否解 ≠ 数值是否好解。L3 是"好不好解"的问题。**
 
@@ -336,9 +339,9 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | hard/soft CPA 混乱 | 一 | L1 | 1.5.a CPA Constraint Builder | **F-02, DP-01** |
 | prefix 段违反被静默吞 | 一 | L1+L4 | 1.5.c σ 表达式 + 4.2 prefix witness | **Q4(待决策)** |
 | runtime box 未生效 | 一 | L2 | 2.3 Parameter Loader、2.4 Bound Configurator | **F-03, DP-02** |
-| 直线 seed 下 QP 总失败 | 一/二 | L2/L3 | 2.1 Seed Generator、3.1 Linearization、3.3 QP Solver | F-05(非 sole) |
-| ACADOS 迭代不收敛 | 二 | L3 | 3.2 Hessian、condensing、3.4 globalization、3.6 tol | F-05(非 sole) |
-| 首QP 就 NAN_SOL | 二 | L3 | 3.3 QP Solver(但根因常在 L1 OCP 错误) | **当前 raw4** |
+| 直线 seed 下 QP 总失败 | 一/二 | L2/L3 | 2.1 Seed Generator、3.1 Linearization、3.3 QP Solver | F-05(L3 ✓ 已关闭,正确 OCP 上消融完成;QP 错误偶发但 SQP 可恢复) |
+| ACADOS 迭代不收敛 | 二 | L3 | 3.2 Hessian、condensing、3.4 globalization、3.6 tol | F-05(L3 ✓ 已关闭;MERIT_BACKTRACKING 基线确认;FUNNEL 消融已对比) |
+| 首QP 就 NAN_SOL | 二 | L3 | 3.3 QP Solver(但根因常在 L1 OCP 错误) | F-05(L3 ✓;L2 后收敛边界已推进至 gap>352m,首QP 失败仍偶发但已不阻塞) |
 | raw4 被改写成 Converged | 三 | L4 | 4.1 Convergence Checker | **F-01, DP-05** |
 | 轨迹数值收敛但很难看 | 三 | L4 | 4.5 Quality Evaluator、L1.4 Objective | C4 |
 | 轨迹可行但 GNC 跟不了 | 三 | L4/L5 | 4.4 Trackability、5.2 Output Formatter | C4 |
@@ -353,12 +356,12 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 
 | 层 | GATE 定义 | 状态 | 阻塞项 |
 |---|---|---|---|
-| **L0 上游输入** | L0-A 所有来源字段 isfinite/range guard + input_degraded 追溯;L0-B box-reach 标量 guard(方向 assert 待 M4 合约确认后);L0-C kCpaSafeFallback 从 yaml 读;三 case 输入 provenance 闭合 | ✓ 完成(commit 6a0c12f3b;T-L0-5/6/7 SIL 集成测试留 C4) | 无 |
+| **L0 上游输入** | L0-A 所有来源字段 isfinite/range guard + input_degraded 追溯;L0-B box-reach 标量 guard(方向 assert 待 M4 合约确认后);L0-C kCpaSafeFallback 从 yaml 读;三 case 输入 provenance 闭合 | ✓ **L0 contract test 完成(2026-07-21,37/37 通过);纯函数提取为 `common/l0_guards.hpp`** ⚠️ F2 finding:`InputDegradation` flag 在 L1+ solver 仍是 write-only(`grep -c "degradation\." mid_mpc_acados_solver.cpp == 0`),L0-T4 RED test 显式证伪"L0 GATE closed"。L0-A 验证契约成立,但下游消费未 wire。 | F2:degradation flag 下游消费(P2) |
 | **L1a OCP 建模(规格冻结,Step2 重新定义 VR-07)** | **hard-never-in-idxsh 原则**已落 codegen+wrapper+adversarial 测试;**`kGIdxCpaHard` global slot** 新增完整 wiring(BL-08);**box live 落地**(stage0 x0 equality 不被 box 覆盖,heading/ROT/speed 每 stage);**ROT 来源修正**(GNC ODD);**terminal contract** 显式定义(BL-10);**heading/ROT schedule 分离**延至 L1b(k_head 公式依赖);**grid physical-time map 原则**(BL-13);**prefix 段 hard row relax 安全边界显式标注依赖 L1b D1**(L1a 测试限定 prefix_active_k=0) | ✓ **L1a-spec-freeze 完成(commit 07c36e43a+;批次1+批次2;902 tests 0 failures)** | heading/ROT schedule 分离延至 L1b |
 | **Step5 DESIGN-IT-TWICE(nh 抉择,BL-09)** | DP-01 nh=36 双 row(ALT-08)vs nh=20+nsh=0+J_colreg(ALT-09)对比裁决;两份评审(ZCode [R23] 推 nh=36 / Codex [R24] 推 nh=20)分歧证据综合;含 m² slack 量级 / 回归面 / slack telemetry / ample-time 语义四维 | ✓ **完成(采纳方案 B,VR-01 final,2026-07-20 18:00)** | 无 — 进入 L1a-spec-freeze 实施 |
-| **L1b OCP 建模(依赖 Q4 + L1a 留的公式回填)** | k_head 公式 + ample-time 下界 `t_latest_safe`(BL-12,✓);CPA suffix-hard schedule(DP-07,✓);min-alt reachability b'(VR-03,✓);prefix CPA NO_SAFE_PLAN+M7(VR-04,✓);direction row reachability schedule(✓);**Q4 σ conditional**(IPOPT,✓);**VR-03 b' 在线 k ≥ oracle k cross-check CI** | ✓ **L1 全部完成(5 commits a16c14397..44862cc17)** | 无 — L1 GATE 可关闭 |
-| **L2 求解准备** | runtime heading/speed/ROT box 每 stage 落地(VR-02);codegen re-run(NSH=0/NP=211 生效);heading/ROT schedule 分离;seed/warm-start F1 前向传播;nsh=0 验证(slack guard + CPA hard floor + d_min telemetry) | ✓ **完成(commit 0c3905c09;codegen NSH=0/NP=211/NH=20 ✅;box live heading/ROT schedule 分离 ✅;d_min fix for softened CPA rows ✅;18/18 acados + 55/55 IPOPT + 4/4 CPA hard floor + 471 tests)** | L1+L2 GATE |
-| **L3 数值求解** | 三 case raw0 + 独立 KKT;每个数值变量 contribution 可隔离;latency p95 ≤ budget | ✓ **完成(L3 GATE closed; Case A status=0<60s ✅; Case B gap=252m Converged ✅; Case C gap=352m post-L2 Converged ✅; FUNNEL ablation对比; 474/474 tests)** | L1+L2 GATE **(L2 ✓ 已关闭,L3 ✓ 已完成)** |
+| **L1b OCP 建模(依赖 Q4 + L1a 留的公式回填)** | k_head 公式 + ample-time 下界 `t_latest_safe`(BL-12,✓);CPA suffix-hard schedule(DP-07,✓);min-alt reachability b'(VR-03,✓);prefix CPA NO_SAFE_PLAN+M7(VR-04,✓);direction row reachability schedule(✓);**Q4 σ conditional**(IPOPT,✓);**VR-03 b' 在线 k ≥ oracle k cross-check CI** | ⚠️ **L1 contract test(2026-07-21,9/11 通过,2 RED finding)** 揭示:**LBX-len5 缺陷**(mid_mpc_acados_solver.cpp:1495-1498)— `ocp_nlp_constraints_model_set("lbx", ...)` 收到长度 5 数组但只读 NBX=3 → psi bound 实际为 -∞。原 "L1 GATE closed" 声明在 box live 落地维度**不成立**。Codegen signature / CPA hard slot / idxbxe pin / prefix CPA witness 等其他维度通过。 | **P0:修 LBX-len5 缺陷** |
+| **L2 求解准备** | runtime heading/speed/ROT box 每 stage 落地(VR-02);codegen re-run(NSH=0/NP=211 生效);heading/ROT schedule 分离;seed/warm-start F1 前向传播;nsh=0 验证(slack guard + CPA hard floor + d_min telemetry) | ⚠️ **L2 contract test(2026-07-21,3/5 通过,2 RED finding)** 揭示:**heading-delayed schedule 因 LBX-len5 缺陷未真正落地**(L2-T1 RED);**soft_aspiration telemetry 仅在 Converged 时填充**(L2-T2 RED,与 LBX-len5 同根)。Codegen NP=211/NSH=0/NH=20 + compile-time layout + warm-start 通过。 | **P0:修 LBX-len5**(同 L1)+ **P3:soft_aspiration 全出口填充** |
+| **L3 数值求解** | 三 case raw0 + 独立 KKT;每个数值变量 contribution 可隔离;latency p95 ≤ budget | ❌ **重开(2026-07-21)** — 之前 commit fb84701b1 的 "L3 GATE closed" 声明被 L1-T4 contract test 证伪。psi 约束实际失效下 "三 case 全 Converged" 是伪收敛。Regression scan 基础设施(G+H)已就位(4/4 通过),但需修 LBX-len5 后重跑 14-arm 消融才能定边界。 | **P0:修 LBX-len5 → P1:重跑 14-arm 消融** |
 | **L4 解复核** | raw 0..7 fail-closed;raw4 adversarial 不变 Converged;success 分层(solver/safety/execution 独立);**h_fn rebuild 测试(con_h 变更后)** | ⬜ 待实施 | 独立于 L1,可并行(但共享 con_h_expr) |
 | **L5 输出降级** | BC→L4 链闭合证据;FinalDegrade→MRM 执行证据;fallback 链完整;**Last-Safe-Maneuver Envelope(5.4.b)** | ⬜ 待实施 | L4 GATE |
 | **LX 诊断** | X1-X5 模块齐全;每 case 证据标准目录完整;**X3 补 prefix pact_pre trace**;**X4 自动分类前置到 C1 并行** | ⬠ 部分有(根因报告实例) | — |
@@ -402,10 +405,7 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | **DP-01 nh 抉择** ~~nh=36 双 row(ALT-08)vs nh=20+nsh=0+J_colreg(ALT-09)~~ | L1 | ~~Step5 DESIGN-IT-TWICE~~ | ~~Step5 GATE~~ | BL-09 闭环 | ✓ **完成(Step5 采纳方案 B:nh=20+nsh=0+J_colreg,VR-01 final,2026-07-20 18:00)** |
 | **DP-01 row 布局实施** 方案 B 落地(nh=20 不变,CPA row residual 改 cpa_hard_m,idxsh 删除,NSH=0/NS=0) | L1+L2 | L1a-spec-freeze(原 L1b,Step5 后提前) | L1a GATE | Step5 nh 抉择 ✓ + DP-01 原则 + kGIdxCpaHard slot | ✓ **完成(commit fe251260b;codegen re-run ✅ NSH=0/NP=211 runtime 生效)** |
 | **DP-01 L4 telemetry 补救** constraints_satisfied_ 去 sl_vec 读,新增 d_min + soft violation_m telemetry(方案 B 失去 slack 的补救) | L4 | L1a-spec-freeze | L1a GATE | 方案 B FB-2 缓解 | ✓ **完成(commit fe251260b;C2 docstring 已补:d_min 只覆盖 suffix stages;T4 friend-test 延后 codegen 后)** |
-| **DP-02 box live** wrapper 每 solve 每 stage 重发 lbx/ubx(消费 live heading/speed/ROT);**stage0 保持 x0 equality 不被 box 覆盖**;非 codegen-default 时才调用 ocp_nlp_constraints_model_set(避免扰动 cold capsule warm-up) | L2 | L1a-spec-freeze | L1a GATE | BL-10 terminal contract | ✓ **完成(commit 07c36e43a+;902 tests,0 failures)** |
-| **DP-02 ROT 来源修正** ROT 来自 GNC ODD(`mid_mpc_node.cpp:902-916`)而非 M4;solver 从 `input.rot_max_rad_s`(MidMpcInput direct field)读取 live ROT | L2 | L1a-spec-freeze | L1a GATE | 无(Codex 纠正 [R24]) | ✓ **完成** |
-| **DP-02 terminal contract** 显式定义: NHN=0/NBXN=0 是设计选择——terminal stage N(1200s future)不在安全 claim 范围内。hard 约束覆盖 stages 0..N-1(path)。committed prefix + early-mid horizon 提供真实安全保证;M7/MRM 覆盖 terminal gap。若未来证据表明 gap 显著,在后续阶段加 NBXN>0。 | L1+L2 | L1a-spec-freeze | L1a GATE | BL-10 闭环 | ✓ **定义完成(见 §DP-02 terminal contract)** |
-| **DP-02 heading/ROT schedule 分离** heading 按 k_head_earliest 延迟硬化,ROT 全 stage hard(无 schedule);solver box live 中 per-stage 区分 | L2 | L2(原 L1b,DP-08 k_head 已就绪后提前实施) | L2 GATE | DP-08 k_head(L1b) ✓ + compute_reachability_schedule | ✓ **完成(commit 0c3905c09;box live 块中 heading 按 k_head_earliest 延迟,ROT/speed 始终硬绑定;已验证 18/18 acados + 55/55 IPOPT + 4/4 CPA hard floor tests)** |
+| **DP-02 box live** wrapper 每 solve 每 stage 重发 lbx/ubx(消费 live heading/speed/ROT);**stage0 保持 x0 equality 不被 box 覆盖**;非 codegen-default 时才调用 ocp_nlp_constraints_model_set(避免扰动 cold capsule warm-up) | L2 | L1a-spec-freeze | L1a GATE | BL-10 terminal contract | ⚠️ **2026-07-21 contract test 复审:box live 写入存在 LBX-len5 缺陷**(`mid_mpc_acados_solver.cpp:1495-1498`)。`ocp_nlp_constraints_model_set("lbx", ...)` 收到长度 5 数组(kAcadosNx),但 acatos 只读前 NBX=3 个 entry(idxbx=[2,3,4])。结果:intended `psi_lb=stage_hdg_min` 错位映射到 spd slot,psi 实际 bound 为 -kUhInf。L1-T4 RED test 显式证伪。**原 "902 tests 0 failures" 未覆盖 box live 写入路径的 acatos 语义契约**(cherry-picked 测试盲区)。 |
 | **DP-08 原则** grid physical-time map:所有 schedule 先按物理秒定义再映射各自 backend grid,禁裸 k parity(IPOPT/acados off-by-one)。IPOPT psi[0] vs acados stage0 差一 stage,物理秒映射消除差异。 | L1+LX | L1a-spec-freeze | L1a GATE | BL-13 原则层闭环 | ✓ **原则定义完成(见 §DP-08 原则)** |
 | **DP-08 k_head 公式** k_head + ample-time 下界 `t_latest_safe`(双量) | L1 | **L1b**(原 C1a) | L1b GATE | BL-12 Step3/Step5 | ✓ **完成(commit a16c14397;acados compute_reachability_schedule 含 k_head_earliest/k_head_latest 双量 + window cross-check)** |
 | **DP-03** min-alt reachability b'(保守因子 + oracle cross-check) | L1 | C1b | L1b GATE | Q4 已确认 | ✓ **完成(commit 44862cc17;kSurrogateFudgeFactor=2.0 应用于 acados+IPOPT 双路径;oracle cross-check log)** |
@@ -413,7 +413,10 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | **DP-07** prefix CPA row 处理 + CPA suffix-hard schedule(DP-01×DP-08 耦合解耦) | L1 | C1b | L1b GATE | Q4 + DP-08 k_head | ✓ **完成(commit ee6cf0cb0;三阶段 commit→soften→hard, k_cpa_suffix=max(k_minalt,k_head_earliest,k_tcpa))** |
 | **direction row** reachability schedule(§4.4 k=0 soften 镜像) | L1 | C1b | L1b GATE | GNC Q7 | ✓ **完成(commit a16c14397;方向 wrong-side 检测 + k_head_earliest 含 k_dir)** |
 | **Q4 σ conditional** IPOPT prefix CPA σ 吸收修复 + D1 witness(两路径同源) | L1(IPOPT) | C1b | L1b GATE | BL-15 + BUG-L1-01 | ✓ **完成(commit a39c9b978;compile_cpa_distance 加 prefix_K 参数,σ 只加 k>=prefix_K 行)** |
-| **F-05** EXACT Hessian + R=0 + no-reg 数值(L3 单变量矩阵) | L3 | C2 | L3 GATE | L1+L2 GATE | ✓ **完成(L3 GATE closed; MERIT_BACKTRACKING baseline; FUNNEL ablation对比记录; 三case验证: A status=0<60s, B gap=252m Converged, C gap=352m post-L2 Converged; 474/474 tests; 收敛边界L2后已从352m推进)** |
+| **F-05** EXACT Hessian + R=0 + no-reg 数值(L3 单变量矩阵) | L3 | C2 | L3 GATE | L1+L2 GATE | ❌ **重开(2026-07-21 contract test)**:原 commit fb84701b1 的 "L3 GATE closed; 三 case 全 Converged" 声明被 L1-T4 contract test 证伪。psi 约束因 LBX-len5 缺陷失效下 "三 case 全 Converged" 是伪收敛(seed 碰巧被接受)。MERIT_BACKTRACKING 选型保持,但收敛边界需修 LBX-len5 后重测。详见 `2026-07-21-m5-7layer-contract-test-report.md`。 |
+| **LBX-len5 缺陷修复** solver box live 写入改长度 3 紧凑数组(顺序对齐 idxbx=[2,3,4]) | L2 | 新增(C1 修复) | L1+L2 GATE 重关 | 无(独立 bug fix) | ⬜ **P0 待实施**(本轮 contract test 揭示;修法见 `2026-07-21-m5-7layer-contract-test-report.md` §5.1)。修复后 L1-T4/L2-T1 转 GREEN,L3 GATE 可重关。 |
+| **L0-T4/F2 degradation flag 下游消费** solver dispatch 读 `InputDegradation::any()` 并反映到 solution | L1+L4 | 新增(本层修复) | L0 GATE 真正关闭 | 无 | ⬜ **P2 待实施**(F2 finding;修复后 L0-T4 RED → GREEN)。 |
+| **soft_aspiration 全出口填充** `constraints_satisfied_` 的 d_min 计算 extract,所有 solve 出口路径都填 telemetry | L4 | 新增(本层修复) | L2 GATE 补强 | LBX-len5 修复(让 status=Converged 路径再次可达) | ⬜ **P3 待实施**(L2-T2 RED finding;与 LBX-len5 同根)。 |
 | **F-01** status fail-closed(raw 0..7 映射) | L4 | C3 | L4 GATE | 独立(共享 con_h_expr) | ⬜ 待实施 |
 | **4.1 h_fn rebuild** 同步(con_h 变更后 cache 重建) | L4 | C3 | L4 GATE | con_h_expr 变更 | ⬜ 待实施 |
 | **5.3** BC→L4 链闭合(reactive_override_cmd 订阅) | L5 | C4 | L5 GATE | L4 GATE | ⬜ 待实施 |
@@ -500,3 +503,4 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | 日期 | 变更 | 来源 |
 |---|---|---|
 | 2026-07-20 | 初版架构骨架(L0-L5 + LX),融合 4 层 + ChatGPT 6+LX + NLM + GNC 评审 | 决策日志 Step1.6 |
+| 2026-07-21 | **L3 GATE 重开**:contract test (L1-T4) 揭示 LBX-len5 缺陷,原 commit fb84701b1 "L3 GATE closed" 声明被证伪。新增 LBX-len5 / F2 / soft_aspiration 三项 P0-P3 待办。L0/L1/L2 contract test + G+H scan 基础设施落地(57 tests, 53 PASS, 4 RED finding)。 | docs/superpowers/specs/2026-07-21-m5-7layer-contract-test-report.md |
