@@ -1,15 +1,92 @@
 #!/usr/bin/env python3
-"""Attach independent-oracle scope to acados diagnostic verdicts."""
+"""Attach independent-oracle scope to acados diagnostic verdicts.
+
+Also enriches every verdict with an X4 failure_classification field
+(Category 1-4 automated root-cause classifier).
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import x4_failure_classifier as x4  # noqa: E402
 
 
 def write_json(path: pathlib.Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def _enrich_with_failure_classification(verdict_path: pathlib.Path,
+                                         verdict: dict) -> None:
+    """LX-T2: Add X4 failure_classification to an existing verdict dict.
+
+    Looks for sibling diagnostic files (solution.json, derivative_diagnostics.json,
+    gnc_executability.json, qp_statistics.json) alongside the verdict to provide
+    richer evidence to the classifier.
+    """
+    parent = verdict_path.parent
+
+    # Build solver_output from sibling files.
+    solver_output: dict = {}
+    for fname, extractor in [
+        ("solution.json", _load_solution_for_classifier),
+        ("qp_statistics.json", _load_qp_stats_for_classifier),
+        ("derivative_diagnostics.json", _load_derivative_diag_for_classifier),
+        ("gnc_executability.json", _load_gnc_exec_for_classifier),
+    ]:
+        fpath = parent / fname
+        if fpath.exists():
+            extractor(fpath, solver_output)
+
+    # Enrich (mutates verdict in-place).
+    x4.enrich_verdict(verdict, solver_output=solver_output)
+
+
+def _load_solution_for_classifier(path: pathlib.Path,
+                                   output: dict) -> None:
+    sol = json.loads(path.read_text(encoding="utf-8"))
+    x4._maybe_set(output, "raw_status", sol.get("raw_status"))
+    x4._maybe_set(output, "sqp_iter", sol.get("sqp_iter"))
+    x4._maybe_set(output, "cost", sol.get("cost"))
+    fw = sol.get("final_warm")
+    if isinstance(fw, dict):
+        x4._maybe_set(output, "raw_status", fw.get("raw_status"))
+        x4._maybe_set(output, "sqp_iter", fw.get("sqp_iter"))
+        x4._maybe_set(output, "cost", fw.get("cost"))
+        x4._maybe_set(output, "nlp_residuals", fw.get("nlp_residuals"))
+        x4._maybe_set(output, "qp_status_history", fw.get("qp_status_history"))
+        x4._maybe_set(output, "qp_iter_history", fw.get("qp_iter_history"))
+        x4._maybe_set(output, "raw_semantic", fw.get("raw_semantic"))
+
+
+def _load_qp_stats_for_classifier(path: pathlib.Path,
+                                   output: dict) -> None:
+    qps = json.loads(path.read_text(encoding="utf-8"))
+    x4._maybe_set(output, "raw_status", qps.get("raw_nlp_status"))
+    x4._maybe_set(output, "sqp_iter", qps.get("sqp_iter"))
+    x4._maybe_set(output, "nlp_residuals",
+                  qps.get("nlp_residuals_stat_eq_ineq_comp"))
+    x4._maybe_set(output, "qp_status_history", qps.get("qp_status_history"))
+    x4._maybe_set(output, "qp_iter_history", qps.get("qp_iter_history"))
+    x4._maybe_set(output, "raw_semantic", qps.get("raw_nlp_status_semantic"))
+
+
+def _load_derivative_diag_for_classifier(path: pathlib.Path,
+                                          output: dict) -> None:
+    diag = json.loads(path.read_text(encoding="utf-8"))
+    has_cv = x4._detect_constraint_violations_from_derivative_diag(diag)
+    if has_cv:
+        x4._maybe_set(output, "has_constraint_violations", True)
+
+
+def _load_gnc_exec_for_classifier(path: pathlib.Path,
+                                   output: dict) -> None:
+    gnc = json.loads(path.read_text(encoding="utf-8"))
+    x4._maybe_set(output, "gnc_executability", gnc)
 
 
 def main() -> int:
@@ -66,6 +143,10 @@ def main() -> int:
         if case_id == "rule14_ho_live_dispatch_749728000002":
             verdict["live_input_provenance"] = (
                 "Exact projection of real dispatcher solve-boundary capture; strict SIL G-ART manifest pending/valid_data=false.")
+
+        # LX-T2: Enrich with X4 failure classification.
+        _enrich_with_failure_classification(path, verdict)
+
         write_json(path, verdict)
         updated.append(str(path))
     print(json.dumps({"updated_count": len(updated), "paths": updated}, indent=2))
