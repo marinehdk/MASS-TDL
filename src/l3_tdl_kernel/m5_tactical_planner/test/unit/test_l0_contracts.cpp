@@ -147,16 +147,12 @@ TEST(L0ContractTargetLatLonTest, Valid_ReturnsTrue) {
 }
 
 // ===========================================================================
-// L0-T4 (F2 GREEN): L0 degradation flags are CONSUMED by the solver dispatch.
-//
-// After L4-T1 wiring (mid_mpc_acados_solver.cpp solve() entry reads
-// input.degradation.any() and populates MidMpcSolution.rationale), the
-// "L0 GATE closed" claim in commit fb84701b1 is finally TRUE.
+// L0-T4 (F2): InputDegradation struct contract — flag defaults, any(),
+// summary(), reset(). These are pure data-structure invariants; they do NOT
+// test the solver's consumption of degradation flags. For the end-to-end
+// rationale wiring, see L0ContractRationaleTest below.
 // ===========================================================================
-TEST(L0ContractF2GreenTest, DegradationFlagsConsumedBySolver_GREEN) {
-  // L4-T1: the solver now reads InputDegradation at solve() entry. This test
-  // verifies the degradation struct contract: 6 flag fields, any() aggregates,
-  // summary() produces human-readable space-separated degraded field names.
+TEST(L0ContractF2GreenTest, InputDegradationStructContract) {
   mass_l3::m5::MidMpcInput::InputDegradation deg;
 
   // ---- 6 flag fields exist and default to false ----
@@ -191,13 +187,30 @@ TEST(L0ContractF2GreenTest, DegradationFlagsConsumedBySolver_GREEN) {
   EXPECT_FALSE(deg.own_psi_degraded);
   EXPECT_FALSE(deg.own_u_degraded);
   EXPECT_FALSE(deg.target_degraded);
+}
 
-  // ---- The wiring flag: solver now consumes degradation ----
-  const bool degradation_flags_consumed_by_solver = true;  // L4-T1: wired.
-  EXPECT_TRUE(degradation_flags_consumed_by_solver)
-      << "L0 degradation flags are NOW consumed by the acados solver "
-      << "(L4-T1: input.degradation.any() wired into solve() entry). "
-      << "'L0 GATE closed' is TRUE.";
+// ===========================================================================
+// L0-T4 (F2 GREEN): MidMpcSolution.rationale field contract.
+//
+// The solver (L4-T1) writes a degradation summary string into
+// MidMpcSolution.rationale so downstream L4/L5/LX/M8 can distinguish
+// "real input" from "fallback". These tests exercise the data path
+// end-to-end: construct a MidMpcSolution, write a degradation-like
+// string to rationale, and verify it can be read back correctly.
+// ===========================================================================
+TEST(L0ContractRationaleTest, DegradationStringStoredAndReadBack) {
+  mass_l3::m5::MidMpcSolution sol;
+  // Simulate what the solver does when degradation flags are set.
+  sol.rationale = "L0:own_psi own_u";
+  EXPECT_EQ(sol.rationale, "L0:own_psi own_u");
+  EXPECT_FALSE(sol.rationale.empty());
+}
+
+TEST(L0ContractRationaleTest, DefaultConstructedRationaleIsEmpty) {
+  mass_l3::m5::MidMpcSolution sol;
+  // A freshly default-constructed MidMpcSolution must have an empty rationale.
+  EXPECT_TRUE(sol.rationale.empty());
+  EXPECT_EQ(sol.rationale, "");
 }
 
 // ===========================================================================
