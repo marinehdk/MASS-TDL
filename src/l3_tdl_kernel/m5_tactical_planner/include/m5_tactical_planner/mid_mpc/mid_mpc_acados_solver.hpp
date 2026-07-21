@@ -79,7 +79,19 @@ struct ReachabilitySchedule {
 //                              solver_moved + primal feasibility before use)
 //   other→ NumericalFailure  (unexpected)
 // VR-05: raw 4 NEVER maps to Converged. This is the contract the L4 tests assert.
-MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status);
+inline MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status) {
+  switch (raw_status) {
+    case 0:  return MidMpcSolution::SolverStatus::Converged;
+    case 1:  return MidMpcSolution::SolverStatus::Timeout;
+    case 2:  return MidMpcSolution::SolverStatus::Infeasible;
+    case 3:  return MidMpcSolution::SolverStatus::NumericalFailure;
+    // VR-05: raw 4 is QpRecovered — NOT Converged. This is the contract the
+    // L4 tests assert. The caller (solve()) may further refine this to
+    // NumericalFailure if solver_moved is false or constraints are violated.
+    case 4:  return MidMpcSolution::SolverStatus::QpRecovered;
+    default: return MidMpcSolution::SolverStatus::NumericalFailure;
+  }
+}
 
 // Map SolverStatus to the backward-compatible MidMpcSolution::Status.
 // This preserves the existing downstream contract (L4/L5/M7 read `status`) while
@@ -90,7 +102,27 @@ MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status);
 //   Infeasible       → Infeasible
 //   NumericalFailure → NumericalFailure
 //   NotInitialized   → NotInitialized
-MidMpcSolution::Status solver_status_to_status(MidMpcSolution::SolverStatus ss);
+inline MidMpcSolution::Status solver_status_to_status(MidMpcSolution::SolverStatus ss) {
+  switch (ss) {
+    case MidMpcSolution::SolverStatus::Converged:
+      return MidMpcSolution::Status::Converged;
+    case MidMpcSolution::SolverStatus::QpRecovered:
+      // VR-05: QpRecovered NEVER maps to Converged. The backward-compatible
+      // status is NumericalFailure — downstream consumers that have NOT been
+      // updated to read solver_status will see a non-converged status, which
+      // triggers the existing fallback/degraded paths. This is fail-closed.
+      return MidMpcSolution::Status::NumericalFailure;
+    case MidMpcSolution::SolverStatus::Timeout:
+      return MidMpcSolution::Status::Timeout;
+    case MidMpcSolution::SolverStatus::Infeasible:
+      return MidMpcSolution::Status::Infeasible;
+    case MidMpcSolution::SolverStatus::NumericalFailure:
+      return MidMpcSolution::Status::NumericalFailure;
+    case MidMpcSolution::SolverStatus::NotInitialized:
+    default:
+      return MidMpcSolution::Status::NotInitialized;
+  }
+}
 
 // MidMpcAcadosSolver — production acatos backend for Mid-MPC (Path B 5-dim).
 //

@@ -128,42 +128,10 @@ MidMpcSolution::Status map_acados_status(int status) {
   }
 }
 
-// L4-T3 (VR-05): public status contract functions for testability.
-MidMpcSolution::SolverStatus map_acados_status_to_solver_status(int raw_status) {
-  switch (raw_status) {
-    case 0:  return MidMpcSolution::SolverStatus::Converged;
-    case 1:  return MidMpcSolution::SolverStatus::Timeout;
-    case 2:  return MidMpcSolution::SolverStatus::Infeasible;
-    case 3:  return MidMpcSolution::SolverStatus::NumericalFailure;
-    // VR-05: raw 4 is QpRecovered — NOT Converged. This is the contract the
-    // L4 tests assert. The caller (solve()) may further refine this to
-    // NumericalFailure if solver_moved is false or constraints are violated.
-    case 4:  return MidMpcSolution::SolverStatus::QpRecovered;
-    default: return MidMpcSolution::SolverStatus::NumericalFailure;
-  }
-}
-
-MidMpcSolution::Status solver_status_to_status(MidMpcSolution::SolverStatus ss) {
-  switch (ss) {
-    case MidMpcSolution::SolverStatus::Converged:
-      return MidMpcSolution::Status::Converged;
-    case MidMpcSolution::SolverStatus::QpRecovered:
-      // VR-05: QpRecovered NEVER maps to Converged. The backward-compatible
-      // status is NumericalFailure — downstream consumers that have NOT been
-      // updated to read solver_status will see a non-converged status, which
-      // triggers the existing fallback/degraded paths. This is fail-closed.
-      return MidMpcSolution::Status::NumericalFailure;
-    case MidMpcSolution::SolverStatus::Timeout:
-      return MidMpcSolution::Status::Timeout;
-    case MidMpcSolution::SolverStatus::Infeasible:
-      return MidMpcSolution::Status::Infeasible;
-    case MidMpcSolution::SolverStatus::NumericalFailure:
-      return MidMpcSolution::Status::NumericalFailure;
-    case MidMpcSolution::SolverStatus::NotInitialized:
-    default:
-      return MidMpcSolution::Status::NotInitialized;
-  }
-}
+// L4-T3 (VR-05): public status contract functions are now inline in the header
+// (mid_mpc_acados_solver.hpp) so they are available to test_l4_contracts.cpp even
+// when M5_USE_ACADOS=OFF. The out-of-line definitions here are removed to avoid
+// duplicate-symbol linker errors.
 
 // bounded pseudo-infinity (F2: t_renderer rejects JSON Infinity; the runtime
 // solver bound API accepts a plain double, so 1e10 mirrors the codegen uh).
