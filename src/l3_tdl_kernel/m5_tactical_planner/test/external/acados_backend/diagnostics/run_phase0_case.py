@@ -180,6 +180,43 @@ def bounds(case: dict[str, Any], stage: int, schedule: str) -> tuple[np.ndarray,
     return lo, hi
 
 
+def build_pact_pre_activation_trace(case: dict[str, Any], params: list[np.ndarray],
+                                    schedule: str) -> list[dict[str, Any]]:
+    """LX-T1: Extract prefix activation (pact_pre) trace from packed per-stage params.
+
+    For each stage k in [0..prefix_K], outputs the pact_pre activation factor
+    and the corresponding lh/uh bounds for the prefix_psi (row 0) and prefix_u
+    (row 1) equality rows.  Active means pact_pre != 0.0 and the bounds are not
+    double-disabled (relaxed).
+    """
+    prefix_k = max(0, min(gen.N, int(case["prefix"]["active_k"])))
+    trace: list[dict[str, Any]] = []
+    for k in range(prefix_k + 1):
+        pact_pre = float(params[k][gen.NP_GLOBAL + gen.PS_PACT_PRE_OFF])
+        lo, hi = bounds(case, k, schedule)
+        # Prefix psi (row 0) and prefix_u (row 1): equality when pact_pre=1,
+        # trivial 0==0 when pact_pre=0.  The bounds are always [0,0] in the
+        # current production schedule (never relaxed), so the effective
+        # activation is governed entirely by pact_pre.
+        relaxed_psi = (float(lo[0]) <= -gen.UH_INF / 2.0 or float(hi[0]) >= gen.UH_INF / 2.0)
+        relaxed_u   = (float(lo[1]) <= -gen.UH_INF / 2.0 or float(hi[1]) >= gen.UH_INF / 2.0)
+        trace.append({
+            "stage": k,
+            "pact_pre": pact_pre,
+            "prefix_psi": {
+                "active": bool(pact_pre != 0.0 and not relaxed_psi),
+                "lh": float(lo[0]),
+                "uh": float(hi[0]),
+            },
+            "prefix_u": {
+                "active": bool(pact_pre != 0.0 and not relaxed_u),
+                "lh": float(lo[1]),
+                "uh": float(hi[1]),
+            },
+        })
+    return trace
+
+
 def residual_rows(case: dict[str, Any], params: list[np.ndarray], xs: np.ndarray,
                   slacks: list[np.ndarray], schedule: str) -> dict[str, Any]:
     violations: list[dict[str, Any]] = []
@@ -362,11 +399,13 @@ def main() -> int:
         "iterate_final": final_iterate,
         "stored_iterates": stored_iterates,
     })
+    pact_pre_trace = build_pact_pre_activation_trace(case, params, args.bounds_schedule)
     write_json(args.output / "derivative_diagnostics.json", {
         "phase": "Phase0 residual only; finite-difference/Jacobian/Hessian evidence belongs to Phase1",
         "seed_constraint_residual": seed_residual,
         "solution_constraint_residual": solution_residual,
         "trajectory_delta_inf": trajectory_delta,
+        "pact_pre_activation_trace": pact_pre_trace,
     })
     write_json(args.output / "solution.json", {
         "raw_status": raw_status, "sqp_iter": sqp_iter, "cost": float(solver.get_cost()),
