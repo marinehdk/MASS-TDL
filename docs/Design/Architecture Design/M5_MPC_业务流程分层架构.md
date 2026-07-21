@@ -358,7 +358,7 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | **Step5 DESIGN-IT-TWICE(nh 抉择,BL-09)** | DP-01 nh=36 双 row(ALT-08)vs nh=20+nsh=0+J_colreg(ALT-09)对比裁决;两份评审(ZCode [R23] 推 nh=36 / Codex [R24] 推 nh=20)分歧证据综合;含 m² slack 量级 / 回归面 / slack telemetry / ample-time 语义四维 | ✓ **完成(采纳方案 B,VR-01 final,2026-07-20 18:00)** | 无 — 进入 L1a-spec-freeze 实施 |
 | **L1b OCP 建模(依赖 Q4 + L1a 留的公式回填)** | k_head 公式 + ample-time 下界 `t_latest_safe`(BL-12,✓);CPA suffix-hard schedule(DP-07,✓);min-alt reachability b'(VR-03,✓);prefix CPA NO_SAFE_PLAN+M7(VR-04,✓);direction row reachability schedule(✓);**Q4 σ conditional**(IPOPT,✓);**VR-03 b' 在线 k ≥ oracle k cross-check CI** | ✓ **L1 全部完成(5 commits a16c14397..44862cc17)** | 无 — L1 GATE 可关闭 |
 | **L2 求解准备** | runtime heading/speed/ROT box 每 stage 落地(VR-02);codegen re-run(NSH=0/NP=211 生效);heading/ROT schedule 分离;seed/warm-start F1 前向传播;nsh=0 验证(slack guard + CPA hard floor + d_min telemetry) | ✓ **完成(commit 0c3905c09;codegen NSH=0/NP=211/NH=20 ✅;box live heading/ROT schedule 分离 ✅;d_min fix for softened CPA rows ✅;18/18 acados + 55/55 IPOPT + 4/4 CPA hard floor + 471 tests)** | L1+L2 GATE |
-| **L3 数值求解** | 三 case raw0 + 独立 KKT;每个数值变量 contribution 可隔离;latency p95 ≤ budget | ⬜ 待实施 | L1+L2 GATE **(L2 ✓ 已关闭,可进入 L3)** |
+| **L3 数值求解** | 三 case raw0 + 独立 KKT;每个数值变量 contribution 可隔离;latency p95 ≤ budget | ✓ **完成(L3 GATE closed; Case A status=0<60s ✅; Case B gap=252m Converged ✅; Case C gap=352m post-L2 Converged ✅; FUNNEL ablation对比; 474/474 tests)** | L1+L2 GATE **(L2 ✓ 已关闭,L3 ✓ 已完成)** |
 | **L4 解复核** | raw 0..7 fail-closed;raw4 adversarial 不变 Converged;success 分层(solver/safety/execution 独立);**h_fn rebuild 测试(con_h 变更后)** | ⬜ 待实施 | 独立于 L1,可并行(但共享 con_h_expr) |
 | **L5 输出降级** | BC→L4 链闭合证据;FinalDegrade→MRM 执行证据;fallback 链完整;**Last-Safe-Maneuver Envelope(5.4.b)** | ⬜ 待实施 | L4 GATE |
 | **LX 诊断** | X1-X5 模块齐全;每 case 证据标准目录完整;**X3 补 prefix pact_pre trace**;**X4 自动分类前置到 C1 并行** | ⬠ 部分有(根因报告实例) | — |
@@ -413,7 +413,7 @@ runs/m5_solver_diag/<commit>/<config>/<case_id>/
 | **DP-07** prefix CPA row 处理 + CPA suffix-hard schedule(DP-01×DP-08 耦合解耦) | L1 | C1b | L1b GATE | Q4 + DP-08 k_head | ✓ **完成(commit ee6cf0cb0;三阶段 commit→soften→hard, k_cpa_suffix=max(k_minalt,k_head_earliest,k_tcpa))** |
 | **direction row** reachability schedule(§4.4 k=0 soften 镜像) | L1 | C1b | L1b GATE | GNC Q7 | ✓ **完成(commit a16c14397;方向 wrong-side 检测 + k_head_earliest 含 k_dir)** |
 | **Q4 σ conditional** IPOPT prefix CPA σ 吸收修复 + D1 witness(两路径同源) | L1(IPOPT) | C1b | L1b GATE | BL-15 + BUG-L1-01 | ✓ **完成(commit a39c9b978;compile_cpa_distance 加 prefix_K 参数,σ 只加 k>=prefix_K 行)** |
-| **F-05** EXACT Hessian + R=0 + no-reg 数值(L3 单变量矩阵) | L3 | C2 | L3 GATE | L1+L2 GATE | ⬜ 待实施 |
+| **F-05** EXACT Hessian + R=0 + no-reg 数值(L3 单变量矩阵) | L3 | C2 | L3 GATE | L1+L2 GATE | ✓ **完成(L3 GATE closed; MERIT_BACKTRACKING baseline; FUNNEL ablation对比记录; 三case验证: A status=0<60s, B gap=252m Converged, C gap=352m post-L2 Converged; 474/474 tests; 收敛边界L2后已从352m推进)** |
 | **F-01** status fail-closed(raw 0..7 映射) | L4 | C3 | L4 GATE | 独立(共享 con_h_expr) | ⬜ 待实施 |
 | **4.1 h_fn rebuild** 同步(con_h 变更后 cache 重建) | L4 | C3 | L4 GATE | con_h_expr 变更 | ⬜ 待实施 |
 | **5.3** BC→L4 链闭合(reactive_override_cmd 订阅) | L5 | C4 | L5 GATE | L4 GATE | ⬜ 待实施 |

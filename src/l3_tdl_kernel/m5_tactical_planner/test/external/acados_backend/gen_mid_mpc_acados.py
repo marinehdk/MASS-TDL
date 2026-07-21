@@ -493,7 +493,7 @@ def build_ocp() -> AcadosOcp:
     ocp.solver_options.nlp_solver_tol_eq = 1e-9
     ocp.solver_options.nlp_solver_tol_ineq = 1e-9
     ocp.solver_options.nlp_solver_tol_comp = 1e-9
-    ocp.solver_options.globalization = "MERIT_BACKTRACKING"      # F4
+    ocp.solver_options.globalization = "MERIT_BACKTRACKING"      # F4 — baseline (ablation: FUNNEL_L1PEN_LINESEARCH faster but regresses gap=252m)
     # cost_scaling = ones(N+1): CRITICAL for EXTERNAL cost (T2/T9 finding).
     ocp.solver_options.cost_scaling = np.ones(N + 1)
 

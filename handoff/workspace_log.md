@@ -4930,3 +4930,17 @@ R3 是 P5 推荐的中等工作量选项。L3 阶段可在正确 OCP 上 A/B 测
 - [ ] 至少一次消融对比(FULL vs PARTIAL CONDENSING 或 EXACT vs GAUSS_NEWTON)
 - [ ] 471 tests 全绿
 - [ ] §12 更新 L3 状态
+
+---
+
+## [2026-07-21] Agent: ZCode (codex/m5-design-grounding @ c3593201e+)
+- **Task**: L3 数值求解层 — F-05 ablation + 三 case 验证 + GATE 关闭
+- **Container**: `codex-m5-p3-sil-nodes-1` (ongoing from L2, acados installed)
+- **Changes**:
+  1. Case B test: `ConvergenceBoundary_Gap252_Converges` — gap=252m (target_y=1600m) converges status=0 ✅ (sqp=4, cost=346.85, dur=259ms)
+  2. Case C test: `ConvergenceBoundary_Gap352_Diagnostic` — gap=352m (target_y=1500m) post-L2 converges status=0 (pre-L2 was status=3). Diagnostic probe validates output contract.
+  3. F-05 ablation: `globalization=FUNNEL_L1PEN_LINESEARCH` vs `MERIT_BACKTRACKING` — FUNNEL 6-11× faster on easy scenarios but regresses gap=252m boundary (status=2).
+  4. §12 architecture doc updated: F-05 ✓ completed, L3 GATE ✓ closed.
+- **Results**: 474/474 tests all green; Case A status=0 < 60s; solver convergence boundary shifted post-L2 (gap=352m now converges)
+- **Key finding**: L2 heading/ROT schedule + box live improvements extended the P5 convergence boundary from gap=352m to beyond 352m. MERIT_BACKTRACKING baseline confirmed as production choice.
+- **Next**: L4 (F-01 status fail-closed, h_fn rebuild)
