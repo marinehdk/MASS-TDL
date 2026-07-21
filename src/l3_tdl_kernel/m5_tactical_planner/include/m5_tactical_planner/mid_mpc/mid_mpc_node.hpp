@@ -19,6 +19,7 @@
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/own_ship_state.hpp"
+#include "l3_msgs/msg/reactive_override_cmd.hpp"
 #include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
@@ -121,6 +122,13 @@ class MidMpcNode : public rclcpp::Node {
   // read from on_solve_cycle_ main thread)
   l3_msgs::msg::BcMpcHealth last_bc_health_;
   std::mutex bc_health_mutex_;
+
+  // L5: BC-MPC ReactiveOverrideCmd subscription — cached for BcMpcFollow plan
+  // construction so the avoidance_plan can carry BC-MPC's heading/speed.
+  rclcpp::Subscription<l3_msgs::msg::ReactiveOverrideCmd>::SharedPtr sub_override_cmd_;
+  l3_msgs::msg::ReactiveOverrideCmd last_override_cmd_;
+  bool has_override_cmd_{false};
+  std::mutex override_cmd_mutex_;
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
 

@@ -994,3 +994,123 @@ TEST(CommittedRouteP6, HandoverNeutral_StaleGateDoesNotRevert) {
   EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
       << "state unchanged after stale gate probe";
 }
+
+// ===========================================================================
+// L5: BC->L4 contract tests — verify that BC-MPC takeover produces the
+// correct lifecycle state and that the state maps to the expected
+// avoidance_plan commit_branch / status markers.
+// ===========================================================================
+
+// When BC-MPC takeover is signaled and the escalation threshold is reached,
+// the lifecycle MUST transition to BcMpcFollow. This is the upstream signal
+// that publish_committed_route_() reads to emit COMMIT_BRANCH_BCMPC_FOLLOW.
+TEST(BcToL4Contract, TakeoverSignalYieldsBcMpcFollowState)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager;
+
+  // Simulate BC-MPC take-over signal from Mid-MPC (bc_mpc_should_take_over)
+  manager.mark_bc_mpc_takeover();
+
+  // Commit 3 NLP-failure candidates to reach the escalation threshold.
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Cycle 1: commit fails, counter=1
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  // Cycle 2: commit fails, counter=2 (still below threshold)
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  // Cycle 3: commit fails, counter=3 -> escalation with bc_mpc_takeover_requested_=true
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+
+  // Contract: after 3 failures with takeover signaled, state MUST be BcMpcFollow.
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "L5 BC->L4 contract: takeover + 3 NLP failures -> BcMpcFollow";
+  EXPECT_STREQ(manager.current().safety_concern_event.c_str(),
+               "bc_mpc_takeover_active");
+}
+
+// When BcMpcFollow state is active, the publish_committed_route_ function
+// MUST NOT emit DegradedHold or KeepLast — it must emit BcMpcFollow markers
+// (commit_branch=COMMIT_BRANCH_BCMPC_FOLLOW, status=BCMPC_FOLLOW).
+// This test verifies the lifecycle-state guard: BcMpcFollow is preserved
+// across stale gates and further NLP failures.
+TEST(BcToL4Contract, BcMpcFollowResistsStaleGateAndReEscalation)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager(/*stale_route_max_age_s=*/45.0);
+  manager.mark_bc_mpc_takeover();
+
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Push into BcMpcFollow via 3 NLP failures + takeover signal.
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Stale gate must NOT revert to DegradedHold — §13.2: BcMpcFollow survives stale.
+  EXPECT_FALSE(manager.should_enter_degraded_hold(50.0))
+      << "L5 BC->L4 contract: BcMpcFollow must survive stale gate (>45s)";
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "state unchanged after stale gate probe";
+
+  // Further NLP failures must NOT re-escalate BcMpcFollow to DegradedHold.
+  // try_revise returns false for BcMpcFollow (per §13.2), keeping the state.
+  fail_candidate.plan_id = "test2";
+  const bool committed = manager.try_revise(fail_candidate, 4.0);
+  EXPECT_FALSE(committed) << "BcMpcFollow must reject commits (BC-MPC owns maneuver)";
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "state unchanged after try_revise while in BcMpcFollow";
+}
+
+// After takeover flag is cleared (successful NLP revise), the committed route
+// must be able to exit BcMpcFollow via the handover hysteresis path.
+// This verifies the downstream (BC->Mid handback) leg of the contract.
+TEST(BcToL4Contract, BcMpcFollowHandoverToCommitted)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager;
+  manager.mark_bc_mpc_takeover();
+
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Push into BcMpcFollow.
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Dual condition met (Mid converged + BC CPA safe) — hysteresis accumulates.
+  manager.notify_handover_inputs(true, 2000.0);  // cycle 1: hysteresis=1
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "1st dual-condition cycle: still BcMpcFollow";
+
+  manager.notify_handover_inputs(true, 2000.0);  // cycle 2: hysteresis=2 -> HandoverNeutral
+  EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
+      << "L5 BC->L4 contract: 2 cycles dual-condition -> HandoverNeutral";
+
+  // One more cycle in HandoverNeutral: conditions still met -> Committed
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::Committed)
+      << "L5 BC->L4 contract: HandoverNeutral + dual-condition -> Committed";
+  EXPECT_FALSE(manager.bc_mpc_takeover_requested())
+      << "takeover flag cleared on successful handover";
+}

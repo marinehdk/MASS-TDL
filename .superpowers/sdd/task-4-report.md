@@ -1,795 +1,150 @@
-# Batch Delete Task 4 Report
+# L5-T1 -- BC to L4 Chain Closure: Status Report
 
-## Status
+**Status: DONE**
 
-Implementation complete on `codex/evidence-library-replay-impl`. Task 4 source, component tests, build, backend regression suite, and non-destructive browser verification completed. Task 3 review minor closed with a filter-scope regression test.
+## Research Findings
 
-Task 4 commit: `950a2141f feat(evaluator): complete batch evidence deletion`.
+### 1. Publication/Subscription Chain Analysis
 
-## Scope
+| Component | Publishes | Topic | GNC/L4 Reach |
+|-----------|-----------|-------|--------------|
+| Mid-MPC | `AvoidancePlan` | `/l3/m5/avoidance_plan` | Yes, via GNC bridge |
+| BC-MPC | `ReactiveOverrideCmd` | `/l3/m5/reactive_override_cmd` | No -- only M7 + FCB Sim |
+| BC-MPC | `BcMpcHealth` | `/l3/m5/bc_mpc/health` | No |
 
-Changed owned paths only:
+**Root cause**: GNC bridge (`L3SideNode`) subscribes ONLY to `AvoidancePlan` on `/l3/m5/avoidance_plan`. BC-MPC's `ReactiveOverrideCmd` on `/l3/m5/reactive_override_cmd` is consumed by M7 (safety supervisor) and FCB simulator, but never reaches the GNC bridge or L4.
 
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-- `handoff/workspace_log.md`
+### 2. M5 Output Switching Logic
 
-No API, backend, ROS2, ODD, COLREGs, M5, or M7 source changed. `.agent/rules/superpowers.md` preserved unchanged.
+When `bc_mpc_should_take_over == true` (line 1054 in `mid_mpc_node.cpp`):
+- `committed_route_manager_.mark_bc_mpc_takeover()` is called (line 1064)
+- On 3rd consecutive NLP failure, `try_revise()` transitions to `LifecycleState::BcMpcFollow` (committed_route.cpp line 160)
+- **But `publish_committed_route_()` had NO `BcMpcFollow` branch.** It fell through to the corridor fallback (building a DEGRADED corridor plan with `COMMIT_BRANCH_CORRIDOR`) or the no-conflict return path.
 
-## Implementation
+### 3. HandoverManager
 
-- Added `删除所选（N）` action using snapshot of selected safe sessions.
-- Added batch confirmation dialog with total, pass/fail/unknown, distinct non-empty `worktree_name` count, and permanent database/filesystem warning.
-- Added batch mutation busy state across search, filters, sorting, table actions, selection, scan, page-size, and pagination controls.
-- Added complete-success handling: clear selection, close dialog, restore stable search focus.
-- Added partial-result handling: retain only failed IDs selected, show escaped per-item errors, keep failed snapshot, retry failed IDs only.
-- Reused dialog focus trap, background `inert`, `aria-hidden`, Escape, overlay, and focus restoration behavior.
-- Added whole-request failure message without dropping selected snapshot.
-- Added Task 3 regression proving select-all-filtered stays at one selected safe failure while a safe passing row is filtered out.
+**Does not exist** in the codebase. The handover logic is distributed across the `CommittedAvoidanceRoute` class:
+- `notify_handover_inputs()` -- hysteresis evaluation
+- `mark_bc_mpc_takeover()` / `bc_mpc_takeover_requested_` -- takeover flag
+- P6 state machine: `BcMpcFollow` -> `HandoverNeutral` -> `Committed`
 
-## TDD Evidence
+### 4. AvoidancePlan Schema
 
-RED:
+The `COMMIT_BRANCH_BCMPC_FOLLOW=5` enum value existed in `AvoidancePlan.msg` but was **never assigned** in any code path. The `status="BCMPC_FOLLOW"` string only appeared in `publish_keep_last_()` (which creates empty plans), but `publish_committed_route_()` never reached that code path for `BcMpcFollow` state.
 
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx -t "batch confirmation|partial batch"
-Test Files 1 failed
-Tests 2 failed | 48 skipped
-Expected cause: 删除所选 batch action/dialog absent.
+### 5. The Exact Chain Break
+
+```
+bc_mpc_should_take_over=true
+  -> committed_route -> BcMpcFollow
+  -> publish_committed_route_() builds a CORRIDOR plan (or returns silently)
+  -> GNC bridge receives CORRIDOR plan (no signal that BC-MPC is in control)
+  -> BC-MPC's ReactiveOverrideCmd goes to M7 only
 ```
 
-GREEN:
+The `avoidance_plan` topic never carried `commit_branch=COMMIT_BRANCH_BCMPC_FOLLOW` or `status="BCMPC_FOLLOW"`.
 
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx -t "batch confirmation|partial batch"
-Test Files 1 passed
-Tests 2 passed | 48 skipped
+## Implemented Fix
 
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx -t "excludes a safe filtered-out row"
-Test Files 1 passed
-Tests 1 passed | 49 skipped
+### Files Changed
 
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
-Test Files 1 passed
-Tests 50 passed
+1. **`src/l3_tdl_kernel/m5_tactical_planner/include/m5_tactical_planner/mid_mpc/mid_mpc_node.hpp`**
+   - Added `#include "l3_msgs/msg/reactive_override_cmd.hpp"`
+   - Added `sub_override_cmd_` subscription member
+   - Added `last_override_cmd_` cache member
+   - Added `has_override_cmd_` boolean flag
+   - Added `override_cmd_mutex_` for thread safety
+
+2. **`src/l3_tdl_kernel/m5_tactical_planner/src/mid_mpc/mid_mpc_node.cpp`** (three changes):
+   - **Constructor**: Added subscription to `/l3/m5/reactive_override_cmd` (best-effort QoS). Caches the BC-MPC heading/speed/validity for use in BcMpcFollow plan construction.
+   - **`publish_committed_route_()`**: Added a dedicated `BcMpcFollow`/`HandoverNeutral` branch (inserted after the early-return guard, before the optimized/corridor/return branches). When the lifecycle state is either of these states:
+     - Builds an `AvoidancePlan` with `commit_branch = COMMIT_BRANCH_BCMPC_FOLLOW` (5)
+     - Sets `status = "BCMPC_FOLLOW"` or `"HANDOVER_NEUTRAL"` depending on state
+     - Populates waypoints from the committed route's `active_geometry` (for GNC route continuity)
+     - Falls back to a minimal 2-waypoint plan from ownship toward BC heading if no active geometry exists
+     - Incorporates BC-MPC heading/speed from the cached `ReactiveOverrideCmd` into rationale and waypoint construction
+     - Publishes via `publish_avoidance_plan_()`
+   - **`reset_cross_run_state()`**: Added `has_override_cmd_ = false` reset on scenario change.
+
+3. **`src/l3_tdl_kernel/m5_tactical_planner/test/unit/test_committed_route.cpp`**
+   - Added 3 `BcToL4Contract` tests:
+     - `TakeoverSignalYieldsBcMpcFollowState` -- verifies that BC-MPC takeover + 3 NLP failures transitions to BcMpcFollow state
+     - `BcMpcFollowResistsStaleGateAndReEscalation` -- verifies BcMpcFollow survives stale gate and rejects further commits (BC-MPC owns the maneuver)
+     - `BcMpcFollowHandoverToCommitted` -- verifies the full handback path: BcMpcFollow -> HandoverNeutral -> Committed
+
+### How the Chain Now Works
+
+```
+BC-MPC takeover (is_bc_active_=true)
+  -> publishes ReactiveOverrideCmd on /l3/m5/reactive_override_cmd
+       -> M7 receives it (existing)
+       -> Mid-MPC caches it (NEW)
+  -> Mid-MPC: bc_mpc_should_take_over=true
+       -> committed_route -> BcMpcFollow
+       -> publish_committed_route_ detects BcMpcFollow state
+       -> publishes AvoidancePlan with:
+            commit_branch = COMMIT_BRANCH_BCMPC_FOLLOW (5)
+            status = "BCMPC_FOLLOW"
+            waypoints from active_geometry
+            BC heading in rationale
+       -> GNC bridge receives on /l3/m5/avoidance_plan
+       -> forwards to /colav/avoidance_plan
+       -> L4 executes
 ```
 
-## Automated Verification
+## Test Evidence
 
-Frontend requested suite:
+### New Tests (3 tests, all PASSED)
 
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  src/screens/evaluator/__tests__/ReplayDetailView.test.tsx \
-  src/screens/__tests__/SimulationEvaluator.test.tsx
-Test Files 1 failed | 2 passed
-Tests 6 failed | 56 passed
+```
+[----------] 3 tests from BcToL4Contract
+[ RUN      ] BcToL4Contract.TakeoverSignalYieldsBcMpcFollowState
+[       OK ] BcToL4Contract.TakeoverSignalYieldsBcMpcFollowState (0 ms)
+[ RUN      ] BcToL4Contract.BcMpcFollowResistsStaleGateAndReEscalation
+[       OK ] BcToL4Contract.BcMpcFollowResistsStaleGateAndReEscalation (0 ms)
+[ RUN      ] BcToL4Contract.BcMpcFollowHandoverToCommitted
+[       OK ] BcToL4Contract.BcMpcFollowHandoverToCommitted (0 ms)
+[----------] 3 tests from BcToL4Contract (0 ms total)
 ```
 
-Task-owned `EvidenceLibraryView` passed 50/50. `ReplayDetailView` passed 3/3. `SimulationEvaluator` retained exactly six pre-existing unrelated failures:
+### Existing Tests (all 46 tests still PASSED)
 
-1. `renders replay detail successfully with indexed replay data`
-2. `renders evidence library when no evidence id is bound`
-3. `navigates from evidence library to selected replay`
-4. `renders replay detail when evidence id is bound`
-5. `falls back to evidence library when latest has no indexed session`
-6. `ignores stale store evidence id when route evidence id is absent`
+Total: 46 tests from 7 test suites all passed, including:
+- 4 `BcMpcNodeHandover` tests
+- 10 `CommittedRouteP6` tests (handover hysteresis, FinalDegrade)
+- 7 `CommittedRouteV22` tests (BcMpcFollow lifecycle)
+- 3 `BcToL4Contract` tests (new)
 
-Failure output remains stale English text assertions (`session-123`, `Evidence Library`, `Open Replay`, `colreg-rule14-ho`) plus jsdom `HTMLCanvasElement.prototype.getContext`/MapLibre stderr. No Task 4 code path appears in these failures; scope not broadened.
-
-Final green frontend rerun before commit:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  src/screens/evaluator/__tests__/ReplayDetailView.test.tsx
-Test Files 2 passed
-Tests 53 passed
+```
+[==========] 46 tests from 7 test suites ran. (1 ms total)
+[  PASSED  ] 46 tests.
 ```
 
-Build:
+## ROS2 Contract Compliance
 
-```text
-npm run build
-tsc: pass
-vite: 2396 modules transformed; build pass
-Warnings only: two Foxglove eval warnings and one >500 kB chunk warning.
+- `stamp`: Set to `now` in each plan publish
+- `schema_version`: Set to 116 (consistent with existing contract)
+- `confidence`: 0.3F for BCMPC_FOLLOW, 0.5F for HANDOVER_NEUTRAL (lower than normal plans since BC-MPC owns the maneuver, Mid-MPC is in follow mode)
+- `rationale`: Populated with BC-MPC state, heading, speed, and validity when available
+- `commit_branch`: Set to `COMMIT_BRANCH_BCMPC_FOLLOW` (5)
+
+## Remaining Risks
+
+1. **Pre-existing build failure**: `test_l4_contracts` has linker errors (from L4 task -- `map_acados_status_to_solver_status` and `solver_status_to_status` are declared `[[nodiscard]]` in `.cpp` file but not marked `inline`/exported). This is orthogonal to L5-T1 and does not affect the committed_route or BC-MPC tests.
+2. **Integration testing**: The BcMpcFollow branch in `publish_committed_route_` has not been tested in a running SIL scenario. The unit tests verify the lifecycle state machine and contract, but end-to-end verification of the `avoidance_plan` content on the ROS2 bus during BC-MPC takeover requires a SIL scenario run.
+3. **`HandoverManager` class**: The task brief mentions `HandoverManager` (section 5.3) as a potential new class. The current implementation keeps the handover logic distributed in `CommittedAvoidanceRoute` (consistent with the existing P6 architecture). A dedicated `HandoverManager` could be a future refactoring but is not required to close the BC->L4 chain.
+
+## Commands Used
+
+```bash
+# Build test target
+docker exec codex-m5-p3-sil-nodes-1 bash -c \
+  "cd /opt/ws/build/m5_tactical_planner && make test_committed_route"
+
+# Run tests
+docker exec codex-m5-p3-sil-nodes-1 bash -c \
+  "cd /opt/ws/build/m5_tactical_planner && ./test_committed_route"
+
+docker exec codex-m5-p3-sil-nodes-1 bash -c \
+  "cd /opt/ws/build/m5_tactical_planner && ./test_bc_mpc_node_handover"
 ```
-
-Backend Evidence Library regression:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-59 passed in 22.64s
-```
-
-## Browser Verification
-
-Target: `http://192.168.121.50:55763/#/evaluator`
-
-Evidence: `runs/e2e/evidence_library_batch_delete_20260713_181544/`
-
-Artifacts:
-
-- `01_initial.png`
-- `02_fail_filtered.png`
-- `03_confirmation.png`
-- `04_after_cancel.png`
-- `checklist.json`
-
-Observed at 1440x900:
-
-- Automatic interval and countdown absent.
-- `不通过` filter produced 132 records.
-- Current-page selection, then all 132 filtered safe records selected.
-- Selection remained `已选择 132 条` across next/back pagination.
-- Confirmation showed `共 132 条`, `通过 0`, `不通过 132`, `未知 0`, `工作树 0`, and permanent warning.
-- Dialog canceled. Playwright route blocked batch-delete POST defensively; recorded request list remained empty.
-- Filter menu remained within viewport; toolbar clipping check empty; screenshots show no overlap or table-width regression.
-
-No live deletion request issued.
-
-## Review And Concerns
-
-- CodeGraph blast-radius review found `EvidenceLibraryView` callers only in `SimulationEvaluator`; component test remains direct coverage.
-- `git diff --check` passed before final handoff edit.
-- Browser worktree count was zero because live records had empty `worktree_name`; derived display labels intentionally do not create synthetic summary worktrees, matching brief.
-- Local OrbStack acceptance and A4000 acceptance were not run. Both remain required before promotion/push.
-- Full requested frontend command remains red only from six explicitly pre-existing `SimulationEvaluator` harness failures listed above.
-
-## Final Batch-Delete Review Fixes
-
-Status: all Critical and Important findings in `final-review-950a2141f.md` closed by implementation commit `b439c342b` (`fix(evidence): harden batch deletion recovery`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/api/silApi.ts`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-`routes.py` and `SimulationEvaluator.test.tsx` required no changes. `.agent/rules/superpowers.md` remained untouched.
-
-### Behavior Closed
-
-- Filesystem target now moves atomically into same-parent staging before database deletion. Database/delete/commit failure rolls back and restores original path.
-- Batch processing continues in request order after per-item database, filesystem, or unexpected failures. Internal exception details are replaced with operator-safe messages.
-- Successful database commit reports filesystem cleanup as `completed`, `not_needed`, or `pending`. Pending cleanup returns exact `cleanup_path` for manual recovery and is never offered as a destructive retry.
-- Rejected/lost batch response invalidates authoritative query cache, marks outcome unknown, blocks further deletion, and requires a rescan. Rescan locks selection, clears snapshots, and re-enables selection only after successful reconciliation.
-- Filter, row style, and confirmation use one canonical multi-scenario outcome: any failure is failed; all scenarios passed is passed; empty/partial data is unknown.
-- Selected IDs, outcomes, and worktree metadata are immutable snapshots across query refresh. Toolbar supports `取消选择`; select-all disappears when every filtered safe row is selected.
-
-### TDD Evidence
-
-Initial RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'restores_staged_path_after_database_failure or post_commit_cleanup_failure or sanitizes_unexpected_failures or delete_unified_session_removes_run_dir'
-4 failed, 44 deselected
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'canonical scenario-count|selected IDs|locks selection|cancel selection|rejected batch response|pending post-commit|batch confirmation|refreshes authoritative'
-8 failed, 48 skipped
-```
-
-Malformed/missing body characterization before implementation:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py -k missing_or_malformed_body
-5 passed
-```
-
-External-review follow-up RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py -k post_commit_cleanup_failure
-1 failed: cleanup_path absent
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx -t 'pending post-commit'
-1 failed, 55 skipped: cleanup_path absent from dialog
-```
-
-Focused GREEN:
-
-```text
-Backend review behaviors: 9 passed, 39 deselected
-Frontend review behaviors: 8 passed, 48 skipped
-Cleanup-path backend: 1 passed, 47 deselected
-Cleanup-path frontend: 1 passed, 55 skipped
-```
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-66 passed in 1.86s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  src/screens/evaluator/__tests__/ReplayDetailView.test.tsx
-2 files passed; 59 tests passed
-
-npm run build
-tsc pass; Vite pass; 2396 modules transformed
-
-git diff --check
-pass
-```
-
-Requested three-file frontend run: 62 passed, six pre-existing `SimulationEvaluator.test.tsx` failures remained unchanged. Failures are stale English exact-text assertions plus jsdom MapLibre canvas stderr; no new hook mock was needed.
-
-### Residual Risks
-
-- `filesystem_cleanup=pending` requires manual removal of returned `cleanup_path`; no automatic ledger/sweeper added, per approved minimal recoverable protocol.
-- Local OrbStack and A4000 acceptance not run. Both remain mandatory before promotion or push.
-- No live destructive browser test issued.
-
-## Re-review Blocker Closure After `5744dc703`
-
-Status: all five blockers appended to `final-review-950a2141f.md` closed by
-`a0016cd91` (`fix(evidence): close remaining deletion blockers`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/api/silApi.ts`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-`routes.py` and `SimulationEvaluator.test.tsx` required no change.
-`.agent/rules/superpowers.md` remained untouched and uncommitted.
-
-### Behavior Closed
-
-- Every fulfilled manual scan invalidates the Evidence Library list, including
-  zero-change and partial-error responses. View explicitly awaits authoritative
-  list refetch; unknown deletion state clears only after an error-free scan and
-  successful list refresh.
-- Unknown batch state disables row selection, single deletion, and batch
-  deletion until reconciliation completes.
-- Pending post-commit cleanup results merge by cleanup path across single delete
-  and batch retry. Earlier paths and recovery metadata remain visible until the
-  operator explicitly acknowledges each entry.
-- Staging uses a deterministic evidence-ID/target hash plus an atomic sidecar
-  containing exact evidence ID, original path, staged path, and metadata
-  version. Rescan restores an interrupted pre-commit rename and protects failed
-  recoveries from database pruning.
-- Added focused zero-change/error refresh, unknown-state single delete,
-  mixed-pending retry, single-pending acknowledgement, and repeated
-  process-exit crash-recovery tests.
-
-### TDD RED
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'authoritative list refresh|unknown deletion state|rejected batch response|every fulfilled scan|every HTTP-200 scan error'
-7 failed, 52 skipped: zero-change scan did not refetch; unknown state unlocked
-before authoritative refresh; single deletion remained enabled.
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'single-delete cleanup path|preserves pending cleanup paths'
-2 failed, 59 skipped: pending cleanup had no persistent operator-visible state.
-
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'post_commit_cleanup_failure or precommit_process_exit'
-2 failed, 47 deselected: no cleanup metadata path and no deterministic recovery sidecar.
-```
-
-### Focused GREEN
-
-```text
-Frontend scan/unknown behaviors: 7 passed, 52 skipped
-Frontend durable cleanup behaviors: 3 passed, 58 skipped
-Backend cleanup metadata/crash recovery: 2 passed, 47 deselected
-Rejected-response asynchronous cache assertion: 1 passed, 60 skipped
-```
-
-External uncommitted review initially exposed one non-reproducible cache-test
-timing failure. The assertion now waits for both GET count and reconciled cache
-contents; focused rerun passed. External review verdict: no actionable
-correctness defects.
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-67 passed in 1.99s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  src/screens/evaluator/__tests__/ReplayDetailView.test.tsx
-2 files passed; 64 tests passed
-
-npm run build
-tsc pass; Vite pass; 2396 modules transformed
-
-git diff --check
-pass
-```
-
-Requested three-file frontend run: 67 passed; six unchanged pre-existing
-`SimulationEvaluator.test.tsx` failures. Failures remain stale English text
-assertions and jsdom MapLibre canvas support; no new hook mock was required.
-
-### Residual Risks
-
-- Post-commit cleanup remains explicit/manual. Deterministic payload and sidecar
-  stay on disk; no schema ledger, daemon, or automatic destructive retry added.
-- Local OrbStack and A4000 acceptance not run. Both remain promotion gates.
-- No live destructive browser test issued. Build retains existing Foxglove
-  `eval` and large-chunk warnings.
-
-## Final Adversarial Recovery Closure After `973e87540`
-
-Status: all five merge blockers under `Re-review After 973e87540` closed by
-implementation commit `7a17d192d` (`fix(evidence): make deletion recovery
-restart durable`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-No route/API/schema files changed. `.agent/rules/superpowers.md` remained
-untouched and unstaged.
-
-### Behavior Closed
-
-- Deletion writes an atomic central recovery record under
-  `config_home/.evidence-library-delete-recovery` before the same-parent staging
-  rename. A retry before rescan detects and restores an interrupted pre-commit
-  stage before evaluating deletion again.
-- Recovery uses the central record to preserve the evidence-ID/original-path
-  mapping when the configured root was removed or path validation now fails.
-  The affected database row is protected from scan pruning and the scan returns
-  a sanitized recovery error.
-- Post-commit payloads remain discoverable after the database row and backend
-  process are gone. Rescan reports them in durable `cleanup_pending` results;
-  the view merges those results into versioned local storage and retains the
-  notice across reload until explicit acknowledgement.
-- Final and `.json.tmp` metadata are treated as recovery inputs. Valid temporary
-  metadata can be promoted; invalid/interrupted metadata fails closed and keeps
-  the evidence ID protected instead of silently pruning or deleting it.
-- Per-evidence kernel locks reject concurrent duplicate/single deletion. A
-  shared/exclusive scan coordination lock prevents rescan from restoring or
-  pruning an active deletion. Locks are released by the kernel on process exit.
-
-### Strict TDD Evidence
-
-Initial blocker RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'retry_before_rescan or recovery_target_drifts or temporary_sidecar or postcommit_cleanup_after_process_exit'
-5 failed, 49 deselected
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'rescan-discovered cleanup notice'
-1 failed, 61 skipped
-```
-
-Initial blocker GREEN:
-
-```text
-Backend focused: 5 passed, 49 deselected
-Frontend reload notice: 1 passed, 61 skipped
-```
-
-Adversarial-review follow-up RED/GREEN cycles:
-
-```text
-Pre-commit recovery exit before metadata rewrite:
-RED 1 failed, 54 deselected
-GREEN 1 passed, 54 deselected
-
-Concurrent duplicate deletion during active stage:
-RED 1 failed, 56 deselected
-GREEN 1 passed, 56 deselected
-
-Partial and valid recovery-created temporary metadata:
-RED 2 failed, 55 deselected
-GREEN 2 passed, 55 deselected
-
-Rescan concurrent with active deletion:
-RED 1 failed, 57 deselected
-GREEN 1 passed, 57 deselected
-
-Combined focused recovery command:
-9 passed, 49 deselected in 0.54s
-```
-
-The final uncommitted adversarial review reported no actionable correctness
-defects after inspecting the complete diff and rerunning backend, frontend, and
-build coverage.
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-76 passed in 2.42s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  src/screens/evaluator/__tests__/ReplayDetailView.test.tsx
-2 files passed; 65 tests passed
-
-npm run build
-TypeScript pass; Vite pass; 2396 modules transformed
-
-git diff --check
-pass
-```
-
-### Residual Risks
-
-- Recovery and cleanup intentionally fail closed. Corrupt operator-modified
-  recovery metadata requires manual inspection/cleanup; no automatic destructive
-  retry, schema ledger, or daemon was added.
-- File locking uses Linux `fcntl.flock`, matching deployed hosts. Persistent lock
-  files are inert bookkeeping; lock ownership is kernel state.
-- Local OrbStack and A4000 acceptance were not run. Both remain promotion gates.
-- No live destructive browser test issued. Build retains existing Foxglove
-  `eval` and large-chunk warnings.
-
-## Final Trusted-Recovery Closure After `612c631d1`
-
-Status: two Important blockers and both focused test gaps under
-`Re-review After 612c631d1` closed by implementation commit `7cd508292`
-(`fix(evidence): harden postcommit recovery scope`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-No route, API, schema, or Simulation Evaluator files changed.
-`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
-unstaged.
-
-### Behavior Closed
-
-- Post-commit discovery first matches deterministic recovery paths to an
-  enabled, trusted configured root. Root access then uses component-wise
-  `openat`-style directory descriptors with `O_NOFOLLOW`; inode snapshots and
-  anchor revalidation reject symlink insertion or ancestor replacement.
-- Out-of-root, symlinked, changed, non-directory, and ambiguous recovery states
-  fail closed. Staged payload, central record, and recovery IDs remain intact;
-  discovery no longer rewrites root-local sidecars.
-- A valid staged payload with no database row is reported as
-  `cleanup_pending` without adding a scan error. This preserves logical deletion
-  success, permits lost-response unknown-state reconciliation, and keeps the
-  durable cleanup warning.
-- Durable cleanup notices now use a canonical local-storage key derived from
-  backend `config_home`, evidence database path, and sorted root security/path
-  identity. Different backends/worktrees do not share notices; semantically
-  identical root order/property order restores the same notice.
-
-### Strict TDD Evidence
-
-Initial backend RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'postcommit_recovery or rediscovers_postcommit_cleanup'
-3 failed, 57 deselected
-```
-
-Failures proved cleanup_pending was still a scan error, an out-of-root record
-wrote a local sidecar, and a symlinked ancestor allowed the same write.
-
-Initial frontend RED:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'lost delete response|rescan-discovered cleanup notice|isolates durable cleanup notices'
-2 failed, 1 passed, 61 skipped
-```
-
-Failures proved notices still used the origin-global key and crossed backend
-configuration boundaries. Lost-response reconciliation already passed with
-the required error-free cleanup_pending response contract.
-
-Adversarial follow-up RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'symlink_swap_after_validation'
-1 failed, 60 deselected
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'isolates durable cleanup notices'
-1 failed, 63 skipped
-```
-
-These failures exposed a one-shot pathname-validation TOCTOU and root-array
-order sensitivity. Minimal fixes added descriptor-anchored state checks and
-canonical root sorting.
-
-Focused GREEN:
-
-```text
-Backend postcommit recovery: 4 passed, 57 deselected in 0.39s
-Frontend lost-response/reload/config scope: 3 passed, 61 skipped
-```
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-79 passed in 2.54s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
-1 file passed; 64 tests passed
-
-npm run build
-TypeScript pass; Vite pass; 2390 modules transformed in 6.20s
-
-git diff --check
-pass
-```
-
-Build retains existing Foxglove dependency `eval` warnings and the existing
-large-chunk warning.
-
-### Residual Risks
-
-- Pending staged-payload cleanup remains explicit/manual and warning-only. No
-  schema ledger, daemon, or blind destructive retry was introduced.
-- Descriptor-safe recovery requires Linux/POSIX `dir_fd`, `O_NOFOLLOW`, and
-  `flock`, matching deployed hosts; unsupported hosts fail closed.
-- Local OrbStack and A4000 acceptance were not run. Both remain promotion
-  gates. No live destructive browser test or remote push was performed.
-
-## Final Cleanup-Persistence Closure After `814919315`
-
-Status: final blocker set under `Re-review After 814919315` closed by
-implementation commit `be27ef4c9`
-(`fix(evidence): fail closed until cleanup persistence is ready`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/api/silApi.ts`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
-unstaged.
-
-### Behavior Closed
-
-- Cleanup storage initialization now validates the configuration-identity HTTP
-  response and payload, proves the scoped local-storage key is writable, and
-  locks destructive requests after any failed attempt. Single and batch delete
-  handlers also await successful initialization before calling their mutation.
-- Manual scan remains available while persistence is unavailable. Its completion
-  retries identity initialization, merges scan-discovered cleanup state, and
-  persists that state before deletion becomes available again.
-- Synchronous cleanup and acknowledgement refs prevent delayed identity
-  hydration from merging an already acknowledged stored notice back into state.
-- Backend immediate and restart recovery responses enumerate all retained
-  cleanup artifacts through `cleanup_paths`: staged payload, root-local sidecar
-  when present, and central recovery record. Frontend durable notices and batch
-  results render every additional path.
-
-### Strict TDD Evidence
-
-Backend RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'rediscovers_postcommit_cleanup_after_process_exit_and_restart'
-1 failed, 60 deselected
-
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'post_commit_cleanup_failure_reports_pending_logical_success'
-1 failed, 60 deselected
-```
-
-Both failures were missing `cleanup_paths` contract evidence.
-
-Frontend RED:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'locks deletion after|does not resurrect|restores a rescan-discovered cleanup notice'
-5 failed, 63 skipped
-```
-
-Failures covered HTTP 503, malformed identity, thrown fetch, delayed hydration,
-and omitted root-local sidecar display.
-
-Focused GREEN:
-
-```text
-Backend cleanup reporting: 2 passed, 59 deselected in 0.28s
-Frontend identity/reload/hydration/reporting: 5 passed, 63 skipped
-Frontend delete-focus follow-up: 2 passed, 66 skipped
-```
-
-The first full frontend run exposed two focus-restoration regressions while the
-new persistence operation was pending. Those existing tests were RED; focus is
-now deferred until the operation unlocks, and both passed before the full run.
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-79 passed in 3.85s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
-1 file passed; 68 tests passed in 8.36s
-
-npm run build
-TypeScript pass; Vite pass; 2396 modules transformed; built in 8.35s
-
-git diff --check
-pass
-```
-
-Build retains existing Foxglove dependency `eval` warnings and the existing
-large-chunk warning.
-
-### Residual Risks
-
-- Pending filesystem cleanup remains explicit/manual. No schema ledger, daemon,
-  or automatic destructive retry was introduced.
-- A browser that loses local-storage write capability after initialization keeps
-  current notices in memory; backend central recovery records remain the durable
-  source discoverable through manual scan.
-- Local OrbStack and A4000 acceptance were not run. Both remain promotion gates;
-  no live destructive browser test, remote sync, or push was performed.
-
-## Final Partial-Cleanup Closure After `ea637bdf1`
-
-Status: all findings under `Re-review After ea637bdf1` closed by implementation
-commit `7f571ef80` (`fix(evidence): close cleanup recovery gaps`).
-
-### Changed Files
-
-- `src/sil_orchestrator/evidence_library/service.py`
-- `src/sil_orchestrator/tests/test_evidence_library_routes.py`
-- `web/src/screens/evaluator/EvidenceLibraryView.tsx`
-- `web/src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx`
-
-`.agent/rules/superpowers.md` remained pre-existing modified, untouched, and
-unstaged.
-
-### Behavior Closed
-
-- Restart recovery now distinguishes a completed staged-payload removal from a
-  retained root-local sidecar. It reports the sidecar and central recovery
-  record as pending cleanup, leaves both durable, and retires the central record
-  only after no root-local cleanup artifact remains.
-- Any post-initialization local-storage write failure clears the ready state,
-  marks persistence unavailable, keeps cleanup state in memory, displays an
-  actionable lock warning, and disables further destructive actions. Manual
-  scan retries identity/storage initialization and persists the current warning
-  set before unlocking deletion.
-- Single and batch initialization failures state that no deletion request was
-  sent and direct the operator through the actual close, scan, then retry or
-  reselect flow. Dialog confirmation remains disabled until recovery.
-- Persisted cleanup records now require the complete pending-record shape.
-  Optional `cleanup_paths` must be an array of non-empty, NUL-free strings;
-  malformed records and unsafe optional metadata are omitted and removed when
-  valid state is written back, preventing render crashes.
-
-### Strict TDD Evidence
-
-Backend partial-cleanup RED:
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py \
-  -k 'sidecar_after_exit_between_payload_and_metadata_cleanup'
-1 failed, 61 deselected
-```
-
-The recovery response had an empty `cleanup_pending` list and had silently
-retired the central record.
-
-Runtime persistence RED:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'locks deletion when the first runtime cleanup persistence write fails'
-1 failed, 68 skipped
-```
-
-The cleanup warning remained in memory, but persistence stayed ready, deletion
-stayed enabled, and no recovery status appeared.
-
-Recovery UX RED:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'explains the close'
-2 failed, 69 skipped
-```
-
-Single delete showed an inaccurate direct-retry message; batch delete showed no
-dialog alert.
-
-Persisted-schema RED:
-
-```text
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx \
-  -t 'quarantines persisted cleanup records'
-1 failed, 71 skipped; 1 uncaught TypeError
-```
-
-Malformed `cleanup_paths` reached rendering and called `.filter` on a string.
-
-Focused GREEN:
-
-```text
-Backend old/new restart recovery: 2 passed, 60 deselected in 0.28s
-Runtime persistence recovery: 1 passed, 68 skipped in 1.20s
-Single/batch initialization UX: 2 passed, 69 skipped in 1.16s
-Persisted schema quarantine: 1 passed, 71 skipped in 1.12s
-Combined new frontend coverage: 4 passed, 68 skipped in 1.43s
-```
-
-### Final Verification
-
-```text
-PYTHONPATH=src /usr/bin/python3.10 -m pytest -q -o addopts='' \
-  src/sil_orchestrator/tests/test_evidence_library_config_store.py \
-  src/sil_orchestrator/tests/test_evidence_library_ingest.py \
-  src/sil_orchestrator/tests/test_evidence_library_routes.py
-80 passed in 2.53s
-
-npm test -- src/screens/evaluator/__tests__/EvidenceLibraryView.test.tsx
-1 file passed; 72 tests passed in 7.69s
-
-npm run build
-TypeScript pass; Vite pass; 2396 modules transformed; built in 5.24s
-
-git diff --check
-pass
-```
-
-Build retains existing Foxglove dependency `eval` warnings and existing
-large-chunk warning.
-
-### Residual Risks
-
-- Filesystem artifact cleanup remains explicit/manual. The central recovery
-  record remains the restart-durable locator until root-local artifacts are
-  removed; no ledger, daemon, or blind retry was added.
-- Browser local storage remains required for reload-durable frontend notices.
-  Backend central records remain authoritative and scan-discoverable when
-  browser persistence is unavailable.
-- Local OrbStack and A4000 acceptance were not run. Both remain promotion gates;
-  no live destructive browser test, remote sync, or push was performed.

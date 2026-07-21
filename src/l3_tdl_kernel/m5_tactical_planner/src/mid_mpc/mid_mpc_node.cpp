@@ -482,6 +482,18 @@ MidMpcNode::MidMpcNode(const Config& cfg)
         last_bc_health_ = *msg;
       });
 
+  // L5: subscribe BC-MPC ReactiveOverrideCmd — cached for BcMpcFollow plan
+  // construction so the avoidance_plan published by Mid-MPC carries BC-MPC's
+  // heading/speed when BC-MPC has taken over. Best-effort QoS; a stale/missing
+  // value leaves the BC-MPC plan with the last committed route geometry only.
+  sub_override_cmd_ = create_subscription<l3_msgs::msg::ReactiveOverrideCmd>(
+      "/l3/m5/reactive_override_cmd", 10,
+      [this](const l3_msgs::msg::ReactiveOverrideCmd::SharedPtr msg) {
+        std::lock_guard<std::mutex> lk(override_cmd_mutex_);
+        last_override_cmd_ = *msg;
+        has_override_cmd_ = true;
+      });
+
   // P6: publisher for SafetyConcernEvent — M7 already subscribes via events QoS
   pub_safety_concern_ = create_publisher<l3_msgs::msg::SafetyConcernEvent>(
       "/l3/safety/concern", rclcpp::QoS(10).reliable());
@@ -1816,6 +1828,141 @@ void MidMpcNode::publish_committed_route_(
     return;
   }
 
+  // L5: BC-MPC take-over / handover branch. When the committed_route lifecycle
+  // is BcMpcFollow or HandoverNeutral, publish an avoidance_plan that carries
+  // the BC-MPC mode markers (commit_branch=BCMPC_FOLLOW, status=BCMPC_FOLLOW or
+  // HANDOVER_NEUTRAL) so the GNC bridge / L4 sees the mode switch. The plan
+  // geometry uses the committed route's active_geometry for waypoint continuity;
+  // if the active_geometry is empty, falls back to a minimal DEGRADED plan so
+  // the heartbeat stays alive. The BC-MPC heading/speed from the cached
+  // ReactiveOverrideCmd is reflected in the rationale and first waypoint heading
+  // when available.
+  {
+    using mass_l3::m5::committed_route::LifecycleState;
+    const auto lc_state = committed_route_manager_.current().state;
+    if (lc_state == LifecycleState::BcMpcFollow ||
+        lc_state == LifecycleState::HandoverNeutral) {
+      l3_msgs::msg::AvoidancePlan bc_plan;
+      bc_plan.schema_version = 116;
+      bc_plan.stamp = now;
+      bc_plan.command_source = "m5_bcmpc_follow";
+      bc_plan.parent_route_id = "nominal";
+      bc_plan.plan_id = std::string{"m5_"} + lifecycle_state_name(lc_state);
+      bc_plan.behavior_mode = "collision_avoidance";
+      bc_plan.commit_branch = l3_msgs::msg::AvoidancePlan::COMMIT_BRANCH_BCMPC_FOLLOW;
+      bc_plan.nlp_solver_status = l3_msgs::msg::AvoidancePlan::NLP_NONCONVERGED;
+      bc_plan.nlp_tail_gate_failed = true;
+      bc_plan.valid_until = now + rclcpp::Duration::from_seconds(kAvoidancePlanTtl_s);
+
+      if (lc_state == LifecycleState::BcMpcFollow) {
+        bc_plan.status = "BCMPC_FOLLOW";
+        bc_plan.confidence = 0.3F;
+      } else {
+        bc_plan.status = "HANDOVER_NEUTRAL";
+        bc_plan.confidence = 0.5F;
+      }
+
+      // Incorporate BC-MPC heading from the cached ReactiveOverrideCmd.
+      double bc_heading_deg = 0.0;
+      double bc_speed_kn = 0.0;
+      float bc_validity_s = 0.0F;
+      bool has_bc_cmd = false;
+      {
+        std::lock_guard<std::mutex> lk(override_cmd_mutex_);
+        if (has_override_cmd_) {
+          bc_heading_deg = static_cast<double>(last_override_cmd_.heading_cmd_deg);
+          bc_speed_kn = static_cast<double>(last_override_cmd_.speed_cmd_kn);
+          bc_validity_s = last_override_cmd_.validity_s;
+          has_bc_cmd = true;
+        }
+      }
+
+      // Build waypoints from the committed route's active_geometry (keep-last
+      // geometry for continuity). If the active_geometry is empty, emit a
+      // minimal single-waypoint plan from the current own-ship position so GNC
+      // still has a valid route (>=2 waypoints from ownship-to-BC-heading).
+      const auto& active_geo = committed_route_manager_.current().active_geometry;
+      if (!active_geo.empty()) {
+        bc_plan.latitude.reserve(active_geo.size());
+        bc_plan.longitude.reserve(active_geo.size());
+        bc_plan.command_speed_mps.reserve(active_geo.size());
+        bc_plan.navigation_mode.reserve(active_geo.size());
+        bc_plan.segment_source.reserve(active_geo.size());
+        for (const auto& wp : active_geo) {
+          bc_plan.latitude.push_back(wp.lat_deg);
+          bc_plan.longitude.push_back(wp.lon_deg);
+          bc_plan.command_speed_mps.push_back(wp.speed_mps);
+          bc_plan.navigation_mode.push_back(wp.nav_mode.empty()
+              ? "emergency_avoidance" : wp.nav_mode);
+          bc_plan.segment_source.push_back(
+              l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR);
+        }
+      } else {
+        // No active geometry: build a minimal 2-waypoint plan from ownship
+        // toward BC heading (or straight ahead if no BC command).
+        const double heading_rad = has_bc_cmd
+            ? bc_heading_deg * units::kRadPerDeg
+            : input.own_ship.psi_rad;
+        const double speed_mps = has_bc_cmd
+            ? bc_speed_kn * units::kMsPerKn
+            : input.own_ship.u_mps;
+        constexpr double kWpDistanceM = 100.0;
+        constexpr int kMinWps = 2;
+        bc_plan.latitude.reserve(kMinWps);
+        bc_plan.longitude.reserve(kMinWps);
+        bc_plan.command_speed_mps.reserve(kMinWps);
+        bc_plan.navigation_mode.reserve(kMinWps);
+        bc_plan.segment_source.reserve(kMinWps);
+        for (int i = 0; i < kMinWps; ++i) {
+          const double dist_m = static_cast<double>(i) * kWpDistanceM;
+          const double dn = dist_m * std::cos(heading_rad);
+          const double de = dist_m * std::sin(heading_rad);
+          bc_plan.latitude.push_back(
+              lat0_deg + (dn / units::kEarthRadiusMean_m) * units::kDegPerRad);
+          bc_plan.longitude.push_back(
+              lon0_deg + (de / (units::kEarthRadiusMean_m
+                               * std::cos(lat0_deg * units::kRadPerDeg)))
+                             * units::kDegPerRad);
+          bc_plan.command_speed_mps.push_back(speed_mps);
+          bc_plan.navigation_mode.push_back("emergency_avoidance");
+          bc_plan.segment_source.push_back(
+              l3_msgs::msg::AvoidancePlan::DEGRADED_CORRIDOR);
+        }
+      }
+
+      // Build rationale with BC-MPC state context.
+      char rationale_buf[256];
+      if (has_bc_cmd) {
+        std::snprintf(rationale_buf, sizeof(rationale_buf),
+            "BC-MPC takeover active (state=%s) heading=%.1f deg speed=%.1f kn "
+            "validity=%.1f s",
+            lifecycle_state_name(lc_state), bc_heading_deg, bc_speed_kn,
+            static_cast<double>(bc_validity_s));
+      } else {
+        std::snprintf(rationale_buf, sizeof(rationale_buf),
+            "BC-MPC takeover active (state=%s) — no ReactiveOverrideCmd received yet",
+            lifecycle_state_name(lc_state));
+      }
+      bc_plan.rationale = rationale_buf;
+
+      // Populate AvoidanceWaypoint array from the parallel arrays for GNC
+      // compatibility.
+      bc_plan.waypoints.reserve(bc_plan.latitude.size());
+      for (std::size_t i = 0; i < bc_plan.latitude.size(); ++i) {
+        const double speed = i < bc_plan.command_speed_mps.size()
+            ? bc_plan.command_speed_mps[i] : 0.0;
+        bc_plan.waypoints.push_back(waypoint_from_route_point(
+            bc_plan.latitude[i], bc_plan.longitude[i], speed,
+            bc_plan.confidence, bc_plan.rationale));
+      }
+
+      publish_avoidance_plan_(bc_plan, std::string{"bcmpc_follow:"}
+          + lifecycle_state_name(lc_state));
+      last_emitted_conflict_active_ = conflict_active;
+      return;
+    }
+  }
+
 	  // Fix #6 (2026-07-07): when the optimized NLP plan fails preflight or
 	  // commit, fall through to the corridor fallback instead of returning
 	  // directly to keep-last. This ensures GNC always has at least a geometric
@@ -2270,6 +2417,7 @@ void MidMpcNode::reset_cross_run_state() {
   last_published_route_hash_.reset();
   last_avoidance_plan_publish_time_.reset();
   last_constraint_signature_ = 0;  // Fix #8: force graph rebuild on next scenario
+  has_override_cmd_ = false;       // L5: reset BC-MPC override cache on scenario change
 }
 
 // P6: publish SafetyConcernEvent with CONCERN_BC_FINAL_DEGRADE
