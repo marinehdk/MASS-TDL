@@ -59,8 +59,15 @@ bool valid_nav_mode(const std::string& nav_mode)
 
 }  // namespace
 
-CommittedAvoidanceRoute::CommittedAvoidanceRoute(const double stale_route_max_age_s)
-    : stale_route_max_age_s_(stale_route_max_age_s)
+CommittedAvoidanceRoute::CommittedAvoidanceRoute(
+    const double stale_route_max_age_s,
+    const std::uint32_t bc_final_degrade_threshold,
+    const std::uint32_t mid_unrecovered_threshold,
+    const double cpa_safe_m)
+    : stale_route_max_age_s_(stale_route_max_age_s),
+      bc_final_degrade_threshold_(bc_final_degrade_threshold),
+      mid_unrecovered_threshold_(mid_unrecovered_threshold),
+      cpa_safe_m_(cpa_safe_m)
 {
 }
 
@@ -80,6 +87,14 @@ bool CommittedAvoidanceRoute::try_revise(
   // a fresh solver success clears the cache even when this candidate is
   // rejected for other reasons.
   last_solver_consecutive_failures_ = solver_consecutive_failures;
+
+  // P6: HandoverNeutral and FinalDegrade are managed by the handover state
+  // machine in notify_handover_inputs — do NOT override them from try_revise.
+  if (current_.state == LifecycleState::HandoverNeutral ||
+      current_.state == LifecycleState::FinalDegrade) {
+    return false;
+  }
+
   const bool was_degraded_hold = current_.state == LifecycleState::DegradedHold;
   const std::string original_safety_concern_event = current_.safety_concern_event;
   const auto preserve_degraded_hold = [&]() {
@@ -249,6 +264,14 @@ bool CommittedAvoidanceRoute::should_enter_degraded_hold(const double now_s)
   if (current_.state == LifecycleState::BcMpcFollow) {
     return false;
   }
+  // P6: FinalDegrade and HandoverNeutral are managed by P6 handover state
+  // machine — must NOT be preempted by stale/escalation gates.
+  if (current_.state == LifecycleState::HandoverNeutral) {
+    return false;
+  }
+  if (current_.state == LifecycleState::FinalDegrade) {
+    return false;
+  }
   if ((now_s - current_.stale_committed_at_s) > stale_route_max_age_s_) {
     enter_degraded_hold("committed_route_stale_gt_45s");
     return true;
@@ -393,6 +416,114 @@ void CommittedAvoidanceRoute::enter_degraded_hold(const std::string& safety_conc
 {
   current_.state = LifecycleState::DegradedHold;
   current_.safety_concern_event = safety_concern_event;
+}
+
+// ===========================================================================
+// P6: notify_bc_mpc_health — forward BC-MPC health metrics for Condition A
+// ===========================================================================
+void CommittedAvoidanceRoute::notify_bc_mpc_health(
+    const std::uint32_t override_no_improve_count,
+    const double worst_case_cpa_m,
+    const bool override_active)
+{
+  bc_override_no_improve_count_ = override_no_improve_count;
+  bc_last_worst_case_cpa_m_ = worst_case_cpa_m;
+  bc_health_received_ = true;
+  static_cast<void>(override_active);  // available for future use
+}
+
+// ===========================================================================
+// P6: notify_handover_inputs — evaluate hysteresis + track Mid unrecovered
+// Called by mid_mpc_node every replan cycle (1 Hz).
+//
+// Order of evaluation:
+//   1. HandoverNeutral → Committed / BcMpcFollow (one-cycle audit)
+//   2. BcMpcFollow → HandoverNeutral (hysteresis accumulation)
+//   3. Track Mid unrecovered consecutive cycles (Condition B counter)
+// ===========================================================================
+void CommittedAvoidanceRoute::notify_handover_inputs(
+    const bool mid_converged,
+    const double bc_predicted_cpa_m)
+{
+  const bool dual_condition_met = mid_converged
+      && (bc_predicted_cpa_m >= cpa_safe_m_);
+
+  // --- Step 1: HandoverNeutral audit (one cycle) ---
+  // Check BEFORE hysteresis so the transition to HandoverNeutral and the
+  // subsequent HandoverNeutral→Committed happen on SEPARATE cycles.
+  if (current_.state == LifecycleState::HandoverNeutral) {
+    if (dual_condition_met) {
+      // 1 cycle in HandoverNeutral + conditions still met → Committed
+      current_.state = LifecycleState::Committed;
+      bc_mpc_takeover_requested_ = false;
+      current_.safety_concern_event.clear();
+      spdlog::info("[M5][CommittedRoute] HandoverNeutral → Committed (handover complete)");
+    } else {
+      // Fall back to BcMpcFollow
+      current_.state = LifecycleState::BcMpcFollow;
+      current_.safety_concern_event = "bc_mpc_takeover_active";
+      handover_hysteresis_count_ = 0U;
+      spdlog::info("[M5][CommittedRoute] HandoverNeutral → BcMpcFollow (handover broken)");
+    }
+    // HandoverNeutral consumed — return without further processing
+    return;
+  }
+
+  // --- Step 2: BcMpcFollow hysteresis ---
+  if (current_.state == LifecycleState::BcMpcFollow) {
+    if (dual_condition_met) {
+      ++handover_hysteresis_count_;
+      if (handover_hysteresis_count_ >= kHandoverHysteresisThreshold) {
+        // 2 consecutive cycles met → HandoverNeutral
+        current_.state = LifecycleState::HandoverNeutral;
+        current_.safety_concern_event = "bc_handover_neutral";
+        spdlog::info("[M5][CommittedRoute] BcMpcFollow → HandoverNeutral "
+                     "(hysteresis={})", handover_hysteresis_count_);
+      }
+    } else {
+      // Any condition breaks — reset hysteresis
+      if (handover_hysteresis_count_ > 0U) {
+        handover_hysteresis_count_ = 0U;
+        spdlog::info("[M5][CommittedRoute] Handover hysteresis reset (condition broken)");
+      }
+    }
+  }
+
+  // --- Step 3: Track Mid unrecovered consecutive cycles (Condition B) ---
+  // Counts every cycle where Mid is NOT converged, regardless of transitions.
+  if (!mid_converged) {
+    ++mid_unrecovered_count_;
+  } else {
+    mid_unrecovered_count_ = 0U;
+  }
+  last_mid_converged_ = mid_converged;
+}
+
+// ===========================================================================
+// P6: should_enter_final_degrade — dual-condition check
+// Condition A: BC override_no_improve_count >= 5
+// Condition B: Mid unrecovered count >= 3
+// Both must be true to enter FinalDegrade.
+// ===========================================================================
+bool CommittedAvoidanceRoute::should_enter_final_degrade() const
+{
+  if (current_.state != LifecycleState::BcMpcFollow) {
+    return false;
+  }
+  const bool condition_a = (bc_override_no_improve_count_ >= bc_final_degrade_threshold_);
+  const bool condition_b = (mid_unrecovered_count_ >= mid_unrecovered_threshold_);
+  return condition_a && condition_b;
+}
+
+// ===========================================================================
+// P6: enter_final_degrade — irreversible state, M5 silent, M7 MRM
+// ===========================================================================
+void CommittedAvoidanceRoute::enter_final_degrade()
+{
+  current_.state = LifecycleState::FinalDegrade;
+  current_.safety_concern_event = "bc_final_degrade";
+  spdlog::critical("[M5][CommittedRoute] FINAL_DEGRADE entered "
+                   "(BC failed + Mid unrecovered)");
 }
 
 }  // namespace mass_l3::m5::committed_route

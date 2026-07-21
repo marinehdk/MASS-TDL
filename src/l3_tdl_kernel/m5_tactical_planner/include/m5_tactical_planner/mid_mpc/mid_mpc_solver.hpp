@@ -16,12 +16,20 @@
 // bare new/delete.
 
 #include <casadi/casadi.hpp>
+#include <cmath>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/row_registry.hpp"
+
+// P1b-1b Task 17: the production acados backend wrapper. Only included under
+// M5_USE_ACADOS so OFF builds do not pull the generated-solver header chain.
+#ifdef M5_USE_ACADOS
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_solver.hpp"
+#endif
 
 namespace mass_l3::m5::mid_mpc {
 
@@ -81,6 +89,69 @@ class MidMpcSolver {
   casadi::Dict ipopt_dict_;          // reserved for Phase E2 call-level overrides
   int64_t consecutive_failures_{0};
   bool last_minalt_box_infeasible_{false};  // v2.2 §13.1: set in solve() after derive
+
+#ifdef M5_USE_ACADOS
+  // P1b-1b Task 17: production acados backend. When non-null, solve() dispatches
+  // to it at the TOP of the function (before the IPOPT path). Null when the
+  // acados backend failed to construct OR when M5_USE_ACADOS is off; in either
+  // case solve() falls through to the existing IPOPT path UNCHANGED. The MidMpc
+  // node wires this via a new constructor (or a setter) that takes ownership of
+  // a MidMpcAcadosSolver; legacy callers (IPOPT-only) never install it. This
+  // member is the ONLY state the dispatch branch reads.
+  std::unique_ptr<MidMpcAcadosSolver> acados_solver_{nullptr};
+
+ public:
+  // Install the acados backend (takes ownership). When set, solve() dispatches
+  // to it; passing nullptr reverts to the IPOPT path. Public so the node (which
+  // builds the formulation) can install the backend without friending.
+  void set_acados_solver(std::unique_ptr<MidMpcAcadosSolver> solver) noexcept {
+    acados_solver_ = std::move(solver);
+  }
+
+  // gate-2 (2026-07-19 redesign, see safety memo
+  // 2026-07-19-m5-acados-dispatch-gate2-safety-memo.md): CPA-based dispatch
+  // gate aligned with the BC-MPC Override boundary.
+  //
+  // Returns true when ANY target's predicted CPA (M2 linear) is below the
+  // BC-MPC takeover threshold (cpa_safe_m × kAcadosCpaGateMultiplier), meaning
+  // the target is inside BC-MPC territory and Mid-MPC should defer the cycle
+  // to the BC-MPC reactive layer (fallback to IPOPT this cycle, do NOT compete
+  // with BC-MPC Override). When false for ALL targets, acatos may dispatch in
+  // the ample-time window (CPA ≥ cpa_safe × multiplier).
+  //
+  // This is a DISPATCH GATE (chooses backend for this cycle), NOT a takeover
+  // decision. BC-MPC Override uses trajectory minimax worst_case_cpa
+  // (bc_mpc_collision_detector.cpp:100-114); this gate uses M2 linear cpa_m.
+  // The two can diverge by hundreds of meters in dynamic geometry — both fail
+  // safe (fallback + Override respectively); M7 hard-constraint CPA checker is
+  // the independent backstop.
+  //
+  // Replaces the prior TCPA<2000s guard (P4 T7 I-3 staging guard), which was
+  // 33.3 min — exceeding ample-time literature upper bound (20 min, Wang 2021
+  // [R17] + Frontiers 2021 [R2]) by 800 s and ODD-A ample-time floor (12 min,
+  // architecture design §3.3) by 1280 s, blocking acatos in 12/12 standard
+  // COLREGs scenarios (initial TCPA 666–1659 s).
+  //
+  // Exposed as a public static so the gate decision is unit-testable without
+  // an acatos mock (the dispatch site only forwards input + cpa_safe_m).
+  //
+  // kAcadosCpaGateMultiplier MUST stay aligned with BC-MPC
+  // override_cpa_multiplier (bc_mpc_branch_formulation.hpp:45 default 0.8;
+  // m5_params.yaml:14 overrides to 1.0). If the BC-MPC multiplier is changed
+  // in config, update this constant (or move both to a shared config source).
+  static constexpr double kAcadosCpaGateMultiplier = 1.0;
+
+  [[nodiscard]] static bool compute_bc_mpc_territory(const MidMpcInput& input,
+                                                      double cpa_safe_m) noexcept {
+    const double cpa_gate_m = cpa_safe_m * kAcadosCpaGateMultiplier;
+    for (const auto& tgt : input.targets) {
+      if (std::isfinite(tgt.cpa_m) && tgt.cpa_m < cpa_gate_m) {
+        return true;
+      }
+    }
+    return false;
+  }
+#endif
 
   // Pack previous-cycle trajectory into x0 ∈ R^{2N}: [psi; u].
   [[nodiscard]] casadi::DM pack_warm_start_(const MidMpcSolution& warm) const;

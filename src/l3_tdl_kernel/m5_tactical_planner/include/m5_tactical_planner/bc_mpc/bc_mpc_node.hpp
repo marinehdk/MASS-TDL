@@ -17,6 +17,7 @@
 
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
+#include "l3_msgs/msg/bc_mpc_health.hpp"
 #include "l3_msgs/msg/reactive_override_cmd.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "std_msgs/msg/u_int64.hpp"
@@ -56,6 +57,12 @@ class BcMpcNode : public rclcpp::Node {
   double remaining_validity_s_{0.0};
   l3_msgs::msg::ReactiveOverrideCmd active_cmd_;
 
+  // P6 Condition A counter: consecutive Override ticks with no CPA improvement
+  std::uint32_t consecutive_override_no_improve_{0U};
+  double last_worst_case_cpa_m_{1.0e9};
+  double last_input_predicted_cpa_{1.0e9};
+  static constexpr double kCpaImproveEpsilon_m = 1.0;
+
   Config cfg_;
 
   rclcpp::Subscription<l3_msgs::msg::WorldState>::SharedPtr     sub_world_;
@@ -63,6 +70,8 @@ class BcMpcNode : public rclcpp::Node {
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr        sub_mid_mpc_failures_;
   rclcpp::Publisher<l3_msgs::msg::ReactiveOverrideCmd>::SharedPtr pub_override_;
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr         pub_asdr_;
+  // P6: BC-MPC health metrics published at WorldState frequency
+  rclcpp::Publisher<l3_msgs::msg::BcMpcHealth>::SharedPtr        pub_health_;
   rclcpp::TimerBase::SharedPtr validity_timer_;
 
   void on_world_state_(l3_msgs::msg::WorldState::SharedPtr msg);
@@ -70,6 +79,8 @@ class BcMpcNode : public rclcpp::Node {
   void on_validity_tick_();
   [[nodiscard]] BcMpcInput assemble_input_();
   void publish_override_(const BcMpcSolution& sol);
+  // P6: publish health metrics to /l3/m5/bc_mpc/health
+  void publish_health_(const BcMpcSolution& sol);
 };
 
 }  // namespace mass_l3::m5::bc_mpc

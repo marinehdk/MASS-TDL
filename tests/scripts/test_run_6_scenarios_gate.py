@@ -1581,7 +1581,7 @@ def test_clean8_auto_trace_report_dir(monkeypatch, tmp_path):
         lambda scenario_id, total_time_override=None, sim_rate=10.0, trace_report_dir=None: _fake_runner_result(),
     )
 
-    def fake_report(scenario_id, result, trace_report_dir):
+    def fake_report(scenario_id, result, trace_report_dir, **kwargs):
         path = Path(trace_report_dir) / f"{scenario_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
@@ -1624,7 +1624,7 @@ def test_explicit_trace_report_dir_is_preserved(monkeypatch, tmp_path):
         lambda scenario_id, total_time_override=None, sim_rate=10.0, trace_report_dir=None: _fake_runner_result(),
     )
 
-    def fake_report(scenario_id, result, trace_report_dir):
+    def fake_report(scenario_id, result, trace_report_dir, **kwargs):
         path = Path(trace_report_dir) / f"{scenario_id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({

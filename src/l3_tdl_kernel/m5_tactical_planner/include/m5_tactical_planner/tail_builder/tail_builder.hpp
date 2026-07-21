@@ -75,10 +75,9 @@ struct TailResult {
   std::string reject_reason;
 };
 
-class TailBuilder {
- public:
-  [[nodiscard]] static TailResult build(const TailInputs& inputs);
-};
+// P4 VR-02: TailBuilder splicing retired (horizon 1200s covers full lifecycle).
+// Types (ColregSide, ColregRole, EncounterState, TargetSnapshot, GncExecutionOdd,
+// TailInputs, TailResult) retained for M6 integration use.
 
 }  // namespace mass_l3::m5::tail_builder
 

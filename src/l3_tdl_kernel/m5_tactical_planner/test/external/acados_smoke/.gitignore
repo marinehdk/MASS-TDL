@@ -1,0 +1,4 @@
+# acados code-gen output is produced by gen_smoke.py + run_smoke.sh at run time.
+c_generated_code/
+# compiled runner binary
+smoke_runner

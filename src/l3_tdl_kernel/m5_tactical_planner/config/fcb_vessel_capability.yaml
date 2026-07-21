@@ -11,10 +11,10 @@ vessel:
   vessel_class: "fast-crew-boat"
 
   geometry:
-    length_m: 28.0
-    beam_m: 6.5
-    draft_m: 1.4
-    mass_kg: 95000.0  # [TBD-HAZID] from inclining experiment
+    length_m: 45.0      # LOA (LBP 44.1); [R22] FCB datasheet, was 28.0
+    beam_m: 8.0         # [R22] FCB datasheet, was 6.5
+    draft_m: 1.55       # [R22] build spec, was 1.4
+    mass_kg: 145000.0   # displacement mid (130-160T); [TBD-HAZID] inclining, was 95000
 
   maneuvering:
     # Maximum ROT at 18 kn (calm sea, straight course)
@@ -54,7 +54,8 @@ vessel:
     sway_added_mass_factor: 0.40    # m_y / m  (typical: 0.20-0.60)
     yaw_added_inertia_factor: 0.07  # J_z / I_zz (typical: 0.05-0.15)
 
-  # Nomoto 1st-order model (DEMO-2 fallback, [TBD-HAZID])
+  # Nomoto 1st-order model Tṙ+r=Kδ (DEMO-2 fallback, [TBD-HAZID])
+  # Values are [R22] scaled estimates, [TBD-HAZID] pending sea-trial calibration.
   nomoto:
-    T_s: 15.0
-    K_inv_s: 0.08
+    T_s: 6.0
+    K_s: 0.3

@@ -74,6 +74,64 @@ else()
   message(STATUS "M5: CasADi disabled by option — Mid-MPC and constraint_compiler will be skipped")
 endif()
 
+# Empty default for M5_ACADOS_CONSUMER_LIBS: stays empty under M5_USE_ACADOS=OFF
+# so the consumer link lists below (node + m5_add_gtest macro) are no-ops.
+# Populated under M5_HAS_ACADOS in the option block below with the acatos solver
+# .so + the imported acados target. MUST be defined BEFORE the option block so
+# the list(APPEND ...) inside it is not clobbered; consumers (node, tests) read
+# it AFTER the option block has run.
+set(M5_ACADOS_CONSUMER_LIBS)
+
+# acados — optional, P1b-1b PRODUCTION backend for MidMpc (parallel to IPOPT).
+# Default OFF: IPOPT (M5_USE_CASADI) is the production solve path. acados is a
+# parallel backend exercised only inside the sil_nodes container
+# (docker/sil_nodes.Dockerfile:95-149 installs acados v0.4.4 + t_renderer +
+# acados_template). ON requires both the acados C lib AND the Python codegen
+# toolchain (gen_mid_mpc_acados.py runs at build time). No ABI patch here — the
+# Dockerfile forces -D_GLIBCXX_USE_CXX11_ABI=1 at the acados build, so it is
+# already aligned with casadi (line 78-79) and the workspace.
+#
+# What ON enables (see codegen block after add_library(m5_shared_lib)):
+#   1. Runs gen_mid_mpc_acados.py (CasADi SX codegen -> C sources + Makefile).
+#   2. Builds the generated solver shared lib (libacados_ocp_solver_m5_mid_mpc_acados.so)
+#      via its Makefile `ocp_shared_lib` target.
+#   3. Links that .so into m5_shared_lib + exposes its include dir.
+#   4. Defines M5_USE_ACADOS=1 so Task 17's solver wrapper (#ifdef) compiles in.
+# The formulation source (mid_mpc_acados_formulation.cpp) is CasADi-only and is
+# already built under M5_HAS_CASADI (line 160); it is NOT re-added here.
+option(M5_USE_ACADOS "Build production acados M5 MidMpc backend (P4 default ON)" ON)
+set(M5_HAS_ACADOS OFF)
+if(M5_USE_ACADOS)
+  find_package(acados QUIET REQUIRED)
+  # Python3 Interpreter is needed to run gen_mid_mpc_acados.py at build time.
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  set(M5_HAS_ACADOS ON)
+  message(STATUS "M5: acados production backend enabled (P1b-1b) — codegen + "
+                 "solver lib will be built and linked into m5_shared_lib")
+
+  # Absolute paths to the codegen outputs (built by the custom_command block
+  # after add_library(m5_shared_lib)). Defined here so they can be appended to
+  # M5_LINK_LIBS and flow through the EXISTING PLAIN target_link_libraries call
+  # at line ~190 (the plain signature is already in use via ament_target_deps +
+  # that call, so we cannot introduce a keyword-signature target_link_libraries
+  # on the same target — CMake forbids mixing the two). `acados` is the IMPORTED
+  # target exported by acadosConfig.cmake (transitively links hpipm + blasfeo).
+  set(ACADOS_BACKEND_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/external/acados_backend)
+  set(ACADOS_GEN_DIR     ${ACADOS_BACKEND_DIR}/c_generated_code)
+  set(M5_ACADOS_SOLVER_HEADER ${ACADOS_GEN_DIR}/acados_solver_m5_mid_mpc_acados.h)
+  set(M5_ACADOS_SOLVER_LIB
+      ${ACADOS_GEN_DIR}/libacados_ocp_solver_m5_mid_mpc_acados.so)
+  list(APPEND M5_LINK_LIBS ${M5_ACADOS_SOLVER_LIB} acados)
+  # m5_shared_lib is STATIC: its link deps do NOT auto-propagate to consumers
+  # (node + test executables) under the plain-signature target_link_libraries
+  # used throughout this file. Task 17's wrapper references acatos symbols that
+  # must resolve at the FINAL executable link, so every consumer of
+  # m5_shared_lib must also link the acatos solver .so + the imported acados
+  # target. Collected here as M5_ACADOS_CONSUMER_LIBS and appended to each
+  # consumer's target_link_libraries call (node + m5_add_gtest macro).
+  list(APPEND M5_ACADOS_CONSUMER_LIBS ${M5_ACADOS_SOLVER_LIB} acados)
+endif()
+
 # IPOPT — TODO(Task-2.x): Uncomment when mid_mpc/ sources are added.
 # find_package(IPOPT 3.14.19 EXACT REQUIRED)
 
@@ -95,9 +153,11 @@ find_package(Boost REQUIRED COMPONENTS headers)
 set(M5_SHARED_SOURCES
   src/avoidance_route_hash.cpp
   src/committed_route/committed_route.cpp
+  src/committed_route/fallback_manager.cpp
   src/gnc_preflight.cpp
   # --- common/ ---
   src/common/error.cpp
+  src/common/l0_guards.cpp
   src/common/types.cpp
   src/common/units.cpp
   src/common/time_alignment.cpp
@@ -107,14 +167,21 @@ set(M5_SHARED_SOURCES
   src/shared/vessel_dynamics_model.cpp
   src/shared/cpa_calculator.cpp
   src/shared/trajectory_propagator.cpp
+  src/shared/relative_track.cpp
   # --- bc_mpc/ ---
   src/bc_mpc/bc_mpc_branch_formulation.cpp
   src/bc_mpc/bc_mpc_collision_detector.cpp
   src/bc_mpc/bc_mpc_solver.cpp
   src/bc_mpc/bc_mpc_override_generator.cpp
+  src/bc_mpc/envelope_computer.cpp
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
   src/mid_mpc/degraded_candidate_adapter.cpp
+  # P2 T4 (VR-07b): per-stage t_b closest-point (project_to_segment on the F1
+  # seed). CasADi-free free function; the acatos solver .cpp calls it, and the
+  # unit test links it directly (no acatos .so dependency — testable in
+  # isolation from the stale codegen until T5 regenerates NP=143).
+  src/mid_mpc/mid_mpc_per_stage_tb.cpp
   # --- tail_builder/ ---
   src/tail_builder/tail_builder.cpp
 )
@@ -135,6 +202,10 @@ if(M5_HAS_CASADI)
     src/mid_mpc/mid_mpc_nlp_formulation.cpp
     src/mid_mpc/mid_mpc_solver.cpp
     src/mid_mpc/mid_mpc_waypoint_generator.cpp
+    # P1b-1b Task 15: production acados OCP symbol graph (CasADi MX). Built
+    # unconditionally under M5_HAS_CASADI; the acados codegen script consumes
+    # it but the .cpp itself only links CasADi (no acados link dep here).
+    src/mid_mpc/mid_mpc_acados_formulation.cpp
   )
   list(APPEND M5_LINK_LIBS casadi::casadi)
 endif()
@@ -156,6 +227,98 @@ ament_target_dependencies(m5_shared_lib
 )
 
 target_link_libraries(m5_shared_lib ${M5_LINK_LIBS})
+
+# ---------------------------------------------------------------------------
+# P1b-1b Task 16: acados codegen + generated solver lib (M5_HAS_ACADOS only).
+# ---------------------------------------------------------------------------
+# When the production acados backend is enabled (M5_USE_ACADOS=ON), run the
+# CasADi-SX codegen (gen_mid_mpc_acados.py) at BUILD time to emit the C solver
+# sources + Makefile into c_generated_code/, then build the generated solver
+# shared lib via its Makefile `ocp_shared_lib` target, and link it into
+# m5_shared_lib. The generated header dir is exposed so Task 17's solver
+# wrapper (mid_mpc_acados_solver.cpp, #ifdef M5_USE_ACADOS) can include
+# acados_solver_m5_mid_mpc_acados.h. M5_USE_ACADOS=1 is defined PUBLIC so the
+# Task 17 wrapper compiles in wherever m5_shared_lib is consumed.
+#
+# LINK wiring: the generated .so + the imported `acados` target are appended to
+# M5_LINK_LIBS in the option block above, so they flow through the EXISTING
+# plain-signature target_link_libraries at line ~204. We do NOT add a separate
+# keyword-signature target_link_libraries here: m5_shared_lib already uses the
+# plain signature (ament_target_dependencies + line 204), and CMake forbids
+# mixing plain and keyword signatures on the same target.
+#
+# Why two add_custom_command + one add_custom_target:
+#   - custom_command #1 (OUTPUT: generated .h): runs the Python codegen.
+#   - custom_command #2 (OUTPUT: generated .so): runs `make ocp_shared_lib`.
+#   - custom_target (ALL): ties the .so into the build graph; add_dependencies
+#     forces m5_shared_lib to wait for the .so before linking.
+# The Makefile (acados codegen output) hardcodes INCLUDE_PATH=/usr/local/include
+# and LIB_PATH=/usr/local/lib and links -lacados -lhpipm -lblasfeo (verified in
+# c_generated_code/Makefile:75-99); the Dockerfile installs all three to those
+# exact paths (sil_nodes.Dockerfile:95-149). ACADOS_SOURCE_DIR=/usr/local is set
+# in the image so the codegen include path resolves the installed headers.
+# ACADOS_BACKEND_DIR / ACADOS_GEN_DIR / M5_ACADOS_SOLVER_HEADER / LIB are set in
+# the option block above (they are also needed to populate M5_LINK_LIBS there).
+if(M5_HAS_ACADOS)
+  # codegen: gen_mid_mpc_acados.py -> C sources + Makefile + json (the header is
+  # the canonical "codegen complete" sentinel; it is emitted alongside the .c).
+  add_custom_command(
+    OUTPUT  ${M5_ACADOS_SOLVER_HEADER}
+    COMMAND ${Python3_EXECUTABLE} gen_mid_mpc_acados.py
+    WORKING_DIRECTORY ${ACADOS_BACKEND_DIR}
+    DEPENDS ${ACADOS_BACKEND_DIR}/gen_mid_mpc_acados.py
+    COMMENT "[acados] codegen m5_mid_mpc_acados solver (CasADi SX -> C)"
+    VERBATIM)
+
+  # build generated solver shared lib via its Makefile (Makefile:119-121
+  # `ocp_shared_lib` -> libacados_ocp_solver_m5_mid_mpc_acados.so).
+  add_custom_command(
+    OUTPUT  ${M5_ACADOS_SOLVER_LIB}
+    COMMAND ${CMAKE_MAKE_PROGRAM} -C ${ACADOS_GEN_DIR} ocp_shared_lib
+    DEPENDS ${M5_ACADOS_SOLVER_HEADER}
+    COMMENT "[acados] build generated solver shared lib (ocp_shared_lib)")
+
+  add_custom_target(m5_acados_solver_lib ALL
+    DEPENDS ${M5_ACADOS_SOLVER_LIB})
+
+  # Force m5_shared_lib to wait for the generated .so before linking (the .so
+  # path is on M5_LINK_LIBS, but add_dependencies makes the build-order
+  # dependency explicit so the linker never sees a stale/absent file).
+  add_dependencies(m5_shared_lib m5_acados_solver_lib)
+
+  # Generated solver header (Task 17 wrapper includes it) + the acados/blasfeo/
+  # hpipm include dirs the generated header chain transitively #includes
+  # (matches the Makefile CPPFLAGS, Makefile:79-82). Keyword signature here is
+  # fine: target_include_directories has no plain variant, so no conflict with
+  # the plain target_link_libraries on the same target.
+  target_include_directories(m5_shared_lib PUBLIC
+    ${ACADOS_GEN_DIR}
+    /usr/local/include/acados
+    /usr/local/include/blasfeo/include
+    /usr/local/include/hpipm/include)
+
+  # Public so Task 17's #ifdef M5_USE_ACADOS wrapper compiles in for every
+  # consumer of m5_shared_lib.
+  target_compile_definitions(m5_shared_lib PUBLIC M5_USE_ACADOS=1)
+  # TEMPORARY Phase-1 diagnostic: per-stage chrono profiling of acados solve.
+  # Toggle via -DM5_ACADOS_PROFILE=ON at configure time. Off by default;
+  # removed after the 12.5 s/solve bottleneck is identified.
+  if(M5_ACADOS_PROFILE)
+    target_compile_definitions(m5_shared_lib PUBLIC M5_ACADOS_PROFILE=1)
+  endif()
+
+  # P1b-1b Task 17: the acados solver wrapper. Only added under M5_HAS_ACADOS —
+  # it includes acados_solver_m5_mid_mpc_acados.h (T16 codegen output), which is
+  # absent when codegen did not run. The include dirs + link deps for it are
+  # wired by the T16 block above (target_include_directories PUBLIC +
+  # M5_LINK_LIBS). IPOPT-only sources (mid_mpc_solver.cpp, the NLP formulation)
+  # stay in the M5_HAS_CASADI block; this wrapper is additive. Uses
+  # target_sources (NOT list APPEND on M5_SHARED_SOURCES) because add_library
+  # above already snapshotted that list — only target_sources retroactively adds
+  # to an existing target.
+  target_sources(m5_shared_lib PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mid_mpc/mid_mpc_acados_solver.cpp)
+endif()
 
 # ---------------------------------------------------------------------------
 # m5_mid_mpc_node executable (CasADi-dependent)
@@ -181,6 +344,7 @@ if(M5_HAS_CASADI)
   target_link_libraries(m5_mid_mpc_node
     m5_shared_lib
     spdlog::spdlog
+    ${M5_ACADOS_CONSUMER_LIBS}
   )
 endif()
 
@@ -202,11 +366,12 @@ ament_target_dependencies(m5_bc_mpc_node
   l3_external_msgs
   builtin_interfaces
 )
-target_link_libraries(m5_bc_mpc_node
-  m5_shared_lib
-  spdlog::spdlog
-  Eigen3::Eigen
-)
+  target_link_libraries(m5_bc_mpc_node
+    m5_shared_lib
+    spdlog::spdlog
+    Eigen3::Eigen
+    ${M5_ACADOS_CONSUMER_LIBS}
+  )
 
 # ---------------------------------------------------------------------------
 # Install
@@ -286,6 +451,7 @@ if(BUILD_TESTING)
       m5_shared_lib
       m5_gtest_main
       ${ARGN}
+      ${M5_ACADOS_CONSUMER_LIBS}
     )
     # Pass --gtest_output so colcon test-result can parse the XML.
     set(_m5_result_file
@@ -308,6 +474,39 @@ if(BUILD_TESTING)
       "M5_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures\""
   )
 
+  # P2 T1: relative_track project_to_segment pure function (Eriksen t_b, VR-07b).
+  # No CasADi/acados dependency — pure point-to-segment projection.
+  m5_add_gtest(test_relative_track
+    test/unit/test_relative_track.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # P2 T2: huber_cost pure function (VR-07b). Header-only inline Huber loss:
+  # numeric oracle for T3's acados MX Huber helper + T6's parity/benchmark.
+  # Header-only — NO .cpp added to M5_SHARED_SOURCES.
+  m5_add_gtest(test_huber_cost
+    test/unit/test_huber_cost.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # P7 T2: OU uncertainty parameter derivation (no CasADi, no acados).
+  m5_add_gtest(test_ou_uncertainty
+    test/unit/test_ou_uncertainty.cpp
+    spdlog::spdlog Eigen3::Eigen
+  )
+
+  # P2 T4: per-stage t_b closest-point computation (VR-07b). CasADi-free free
+  # function (compute_per_stage_tb) the acatos solver .cpp calls to fill the
+  # per-stage tb_x/tb_y slots via project_to_segment on the F1 seed. The test
+  # cross-checks the packed tb against the T1 project_to_segment ORACLE directly
+  # (no acatos .so dependency — the .so is stale NP=141 until T5 regenerates
+  # NP=143; the full solver test PASS is deferred to T5/T6, but this test proves
+  # the tb computation itself is correct in isolation).
+  m5_add_gtest(test_mid_mpc_per_stage_tb
+    test/unit/test_mid_mpc_per_stage_tb.cpp
+    spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
   if(M5_HAS_CASADI)
     m5_add_gtest(test_constraint_compiler
       test/unit/test_constraint_compiler.cpp
@@ -321,6 +520,29 @@ if(BUILD_TESTING)
     # ── Task 2.1: Mid-MPC NLP formulation stub tests ────────────────────────
     m5_add_gtest(test_mid_mpc_nlp_formulation
       test/unit/test_mid_mpc_nlp_formulation.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # ── P1b-1b Task 15: production acados OCP symbol-graph (CasADi MX) ────────
+    # Dimension/parameter-partition contract test for the acados formulation.
+    # Depends on CasADi (MX graph) but NOT on acados being installed; the symbol
+    # graph is buildable from CasADi alone (acados codegen is verified separately
+    # in the container via test/external/acados_backend/gen_mid_mpc_acados.py).
+    # Gated on M5_HAS_CASADI (not M5_HAS_ACADOS) so the contract test runs in
+    # both acados-OFF and acados-ON builds.
+    m5_add_gtest(test_mid_mpc_acados_formulation
+      test/unit/test_mid_mpc_acados_formulation.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+
+    # L1a-spec-freeze 批次 1 (Step5 方案 B, VR-01 final): DP-01 CPA hard floor
+    # true-hard 化 symbol-graph tests. Verifies the CPA per-target constraint
+    # residual reads the appended kGIdxCpaHard slot (NOT cpa_safe), and the
+    # hard/soft param isolation (T-B2 adversarial + T-B6a/b/c isolation).
+    # MX-graph-only (no regenerated acatos .so needed); runs in both acados-OFF
+    # and acados-ON builds (mirrors test_mid_mpc_acados_formulation gating).
+    m5_add_gtest(test_l1a_cpa_hard_floor
+      test/unit/test_l1a_cpa_hard_floor.cpp
       spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
     )
 
@@ -390,12 +612,100 @@ if(BUILD_TESTING)
       test/unit/test_stand_on_reject.cpp
       spdlog::spdlog yaml-cpp::yaml-cpp
     )
+	  endif()
+	
+  # ── L4-T2: soft-aspiration telemetry free function (no CasADi/acados) ──
+  m5_add_gtest(test_soft_aspiration_telemetry
+    test/unit/test_soft_aspiration_telemetry.cpp
+  )
+
+  # ── LX-T3: continuous/swept CPA witness free function (no CasADi/acados) ──
+  m5_add_gtest(test_continuous_cpa_check
+    test/unit/test_continuous_cpa_check.cpp
+  )
+	
+	  # ── L0 input guard tests (types.hpp helpers, no CasADi needed) ────────
+	  m5_add_gtest(test_l0_input_guards
+	    test/unit/test_l0_input_guards.cpp
+	  )
+
+  # ── 7-layer regression baseline (2026-07-21): L0/L1/L2 contract tests + ────
+  #    G+H regression scan. See docs/superpowers/specs/2026-07-21-m5-7layer-
+  #    contract-test-design.md. The contract tests are pure-function (L0) or
+  #    codegen+formulation-driven (L1/L2); the regression scan needs acados
+  #    solve() so it is gated on M5_HAS_ACADOS.
+  m5_add_gtest(test_l0_contracts
+    test/unit/test_l0_contracts.cpp
+  )
+
+  if(M5_HAS_CASADI)
+    m5_add_gtest(test_l1_contracts
+      test/unit/test_l1_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    target_compile_definitions(test_l1_contracts PRIVATE
+      "M5_L1_SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
+    # L1 codegen fixture runs gen_mid_mpc_acados.py in SetUp; ~30s codegen +
+    # 11 tests; give it generous headroom.
+    set_tests_properties(test_l1_contracts PROPERTIES TIMEOUT "300")
+    # CasADi dlopen(RTLD_DEEPBIND) + ASAN incompatibility (mirrors existing
+    # CasADi test exceptions in the Debug block below).
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l1_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l1_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+
+    m5_add_gtest(test_l2_contracts
+      test/unit/test_l2_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_l2_contracts PROPERTIES TIMEOUT "300")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l2_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l2_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
   endif()
 
-  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
-  m5_add_gtest(test_tail_builder
-    test/unit/test_tail_builder.cpp
-  )
+  if(M5_HAS_ACADOS)
+    # G+H scan: shared capsule + max_iter_diagnostic override. Codegen fixture
+    # runs first (~30s), then shared solver warm-up (~25s), then 4 scan tests.
+    # Worst-case budget per spec: ~116s. TIMEOUT 240s gives scan headroom for a
+    # cold machine.
+    m5_add_gtest(test_regression_scan
+      test/unit/test_regression_scan.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_regression_scan PROPERTIES TIMEOUT "600")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_regression_scan PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_regression_scan PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+
+    # ── L4 status-contract tests (VR-05, 2026-07-21) ─────────────────────────
+    # Pure-function tests on the status mapping contract. Depends on the acados
+    # solver header for map_acados_status_to_solver_status / solver_status_to_status
+    # declarations, but does NOT instantiate the solver. Links against the m5
+    # shared lib (which compiles mid_mpc_acados_solver.cpp when M5_HAS_ACADOS).
+    m5_add_gtest(test_l4_contracts
+      test/unit/test_l4_contracts.cpp
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+    )
+    set_tests_properties(test_l4_contracts PROPERTIES TIMEOUT "60")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_l4_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_l4_contracts PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+  endif()
+	
+	  # ── Slice C: Terminal TailBuilder library ─────────────────────────────────
 
   # ── Slice D: CommittedAvoidanceRoute manager ──────────────────────────────
   m5_add_gtest(test_committed_route
@@ -433,6 +743,12 @@ if(BUILD_TESTING)
   m5_add_gtest(test_bc_mpc_node_handover
     test/unit/test_bc_mpc_node_handover.cpp
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # ── L5-T3: Last-Safe-Maneuver Envelope Computer tests ──────────────────────
+  m5_add_gtest(test_envelope_computer
+    test/unit/test_envelope_computer.cpp
+    Eigen3::Eigen
   )
 
   # ── DEMO-2 P0: Nomoto 1st-order fallback solver (CasADi-free) ────────────────
@@ -483,6 +799,100 @@ if(BUILD_TESTING)
       target_link_options(${_no_asan_tgt} PRIVATE
         -fno-sanitize=address -fno-sanitize=undefined)
     endforeach()
+  endif()
+
+  # ── P1b-1b Task 17: production acados MidMpc solver wrapper tests. ──────────
+  # End-to-end: build the formulation + the acados wrapper (links the generated
+  # solver .so via m5_shared_lib), run the standard straight-line scenario,
+  # assert the SAME MidMpcSolution output contract as IPOPT (psi/u/x/y finite,
+  # cost/duration/slack populated, status Converged or status-4+solver-moved).
+  # Gated on M5_HAS_ACADOS: the wrapper's #include of the generated solver
+  # header only resolves when T16 codegen ran. OFF builds skip this test (the
+  # dispatch branch compiles to nothing under OFF, so the IPOPT test suite
+  # already covers the OFF path).
+  if(M5_HAS_ACADOS)
+	    m5_add_gtest(test_mid_mpc_acados_solver
+	      test/unit/test_mid_mpc_acados_solver.cpp
+	      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+	    )
+	    # TEMPORARY Phase-1 diagnostic: per-stage chrono profiling of acados solve.
+	    # Toggle via -DM5_ACADOS_PROFILE=ON at configure time. Off by default;
+	    # removed after the 12.5 s/solve bottleneck is identified.
+	    if(M5_ACADOS_PROFILE)
+	      target_compile_definitions(test_mid_mpc_acados_solver PRIVATE M5_ACADOS_PROFILE=1)
+	    endif()
+	    # P6 fix: N=80 acados solver tests take ~44s/test × 13 = ~572s total,
+	    # exceeding the 120s default in m5_add_gtest. Override per-test timeout.
+	    set_tests_properties(test_mid_mpc_acados_solver PROPERTIES TIMEOUT "600")
+
+
+	    # ── P1b-1b Task 18: IPOPT ↔ acados output-contract parity test. ──────────
+    # Backend-switch gate. Same MidMpcInput fed to BOTH backends; the test
+    # proves the produced MidMpcSolution shapes are CONTRACT-compatible
+    # (downstream M4/L4/tail_gate is agnostic to which backend produced the
+    # trajectory). NOT bit-close (two physics differ per spec gate 3).
+    # Gated on BOTH M5_HAS_CASADI AND M5_HAS_ACADOS (this block already sits
+    # inside the M5_HAS_CASADI block, so the test compiles out under either
+    # flag OFF). Under OFF the IPOPT-only test suite already covers the OFF
+    # path; the parity test is meaningless without both backends present.
+	    m5_add_gtest(test_mid_mpc_acados_parity
+	      test/unit/test_mid_mpc_acados_parity.cpp
+	      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+	    )
+	    # P6 fix: acados parity tests take ~42s/test × 3 = ~126s → need >120s.
+	    # Matches acados_solver pattern above.
+	    set_tests_properties(test_mid_mpc_acados_parity PROPERTIES TIMEOUT "300")
+    # IPOPT loads its linear solver via dlopen (RTLD_DEEPBIND) — strip ASAN
+    # in Debug builds (mirrors the test_mid_mpc_solver exception above).
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(test_mid_mpc_acados_parity PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(test_mid_mpc_acados_parity PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+  endif()
+
+  # ── P1b-1c Task 19: Rule14 head-on benchmark runner (IPOPT vs acatos). ──────
+  # Standalone executable (NOT a gtest). Same source compiled under BOTH
+  # M5_USE_ACADOS=OFF (IPOPT kinematics) and =ON (acatos Path B double-
+  # integrator); the #ifdef M5_USE_ACADOS branch in the runner picks the
+  # backend. run_benchmark.sh orchestrates the two builds + runs + compare.
+  # This target sits under M5_HAS_CASADI (NOT M5_HAS_ACADOS) so it builds in
+  # BOTH the OFF (IPOPT) and ON (acatos) builds — m5_shared_lib propagates
+  # M5_USE_ACADOS=1 PUBLIC under ON (T16), so the runner's #ifdef branch
+  # compiles to the acatos wrapper + links the generated solver .so via
+  # M5_ACADOS_CONSUMER_LIBS (empty under OFF); under OFF it compiles to the
+  # IPOPT wrapper. NOT registered as a ctest — the benchmark gate is the
+  # cross-build compare.py, not a single-build pass/fail.
+  if(M5_HAS_CASADI)
+    add_executable(rule14_bench_runner
+      test/external/rule14_ho_benchmark/runner_rule14.cpp
+    )
+    target_link_libraries(rule14_bench_runner
+      m5_shared_lib
+      spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp casadi::casadi
+      ${M5_ACADOS_CONSUMER_LIBS}
+    )
+    # Scenario target distance — compile-time macro. Default 2000.0 (primary,
+    # production-realistic mid-MPC early-detection envelope). run_benchmark.sh
+    # rebuilds under -DSCENARIO_TARGET_DISTANCE_M=500 for the documented-limitation
+    # datapoint. The CMake var RULE14_SCENARIO_TARGET_DISTANCE_M (if set) overrides
+    # the default; this indirection keeps the macro out of the public compile
+    # interface of m5_shared_lib (benchmark-local).
+    if(DEFINED RULE14_SCENARIO_TARGET_DISTANCE_M)
+      target_compile_definitions(rule14_bench_runner PRIVATE
+        SCENARIO_TARGET_DISTANCE_M=${RULE14_SCENARIO_TARGET_DISTANCE_M})
+    endif()
+    # CasADi dlopen(RTLD_DEEPBIND) + ASAN incompatibility (mirrors the existing
+    # CasADi test exceptions). Strip ASAN in Debug builds.
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      target_compile_options(rule14_bench_runner PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+      target_link_options(rule14_bench_runner PRIVATE
+        -fno-sanitize=address -fno-sanitize=undefined)
+    endif()
+    install(TARGETS rule14_bench_runner
+      DESTINATION lib/m5_tactical_planner)
   endif()
 endif()
 

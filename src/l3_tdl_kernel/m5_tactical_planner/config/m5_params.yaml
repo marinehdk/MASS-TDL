@@ -1,8 +1,22 @@
 /**:
     ros__parameters:
         mid_mpc:
-            horizon_s: 90.0
-            n_steps: 18
-            dt_s: 5.0
+            horizon_s: 1200.0   # P4 VR-06b 1200s (was 90; RFC-001 90s推翻)
+            n_steps: 80         # was 18 (dt=15s × 80 = 1200s)
+            dt_s: 15.0          # was 5.0 (P4 dt benchmark selected) 
             rpm_nom: 300.0
             # rot_max_deg_s: 3.0  # replaced by CapabilityManifest / VesselDynamicsModel (MUST-5)
+        bc_mpc:
+            ros__parameters:
+                cpa_safe_m: 1852.0
+                horizon_s: 60.0        # BC short horizon (vs Mid 1200s)
+                dt_s: 0.5              # BC fine-grained dt
+                override_cpa_multiplier: 1.0
+                # P7: BC acceleration optimization (spec §4.6)
+                decel_trigger_ratio: 0.7   # CPA threshold = cpa_safe * ratio
+                decel_factor: 0.5          # speed multiplier during decel
+                urgency_threshold: 0.80
+                # P6 FINAL_DEGRADE trigger parameters
+                override_no_improve_threshold: 5   # Condition A: consecutive Override with no CPA improvement
+                mid_unrecovered_threshold: 3       # Condition B: Mid NLP unrecovered cycles
+                handover_hysteresis_cycles: 2      # Q4: 2 consecutive cycles × 60s

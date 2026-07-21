@@ -1,0 +1,17 @@
+IPOPT_BINARY
+0a5dd857b3a691b72294184f55df36d195785758f6d6907de4094ea8798b2490  /tmp/bench_off/build/m5_tactical_planner/rule14_bench_runner
+ACADOS_BINARY
+0bd532fef284d9edecaed6da24600df0354d754be9fb10c89e2866a748bb056c  /tmp/bench_on/build/m5_tactical_planner/rule14_bench_runner
+GENERATED_DIMS
+#define M5_MID_MPC_ACADOS_NX     5
+#define M5_MID_MPC_ACADOS_NU     2
+#define M5_MID_MPC_ACADOS_NP     210
+#define M5_MID_MPC_ACADOS_NSH    16
+#define M5_MID_MPC_ACADOS_N      80
+CMAKE
+/tmp/bench_on/build/m5_tactical_planner/CMakeCache.txt:CMAKE_BUILD_TYPE:STRING=Release
+/tmp/bench_on/build/m5_tactical_planner/CMakeCache.txt:M5_USE_ACADOS:BOOL=ON
+/tmp/bench_on/build/m5_tactical_planner/CMakeCache.txt:M5_USE_CASADI:BOOL=ON
+/tmp/bench_off/build/m5_tactical_planner/CMakeCache.txt:CMAKE_BUILD_TYPE:STRING=Release
+/tmp/bench_off/build/m5_tactical_planner/CMakeCache.txt:M5_USE_ACADOS:BOOL=OFF
+/tmp/bench_off/build/m5_tactical_planner/CMakeCache.txt:M5_USE_CASADI:BOOL=ON

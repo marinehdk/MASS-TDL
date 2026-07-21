@@ -1,0 +1,4 @@
+# acados code-gen output is produced by gen_m5_subset.py + run_subset.sh at run time.
+c_generated_code/
+# compiled runner binary
+subset_runner

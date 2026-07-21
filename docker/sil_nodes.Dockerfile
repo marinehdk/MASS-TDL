@@ -92,6 +92,71 @@ RUN if [ "$(uname -m)" = "x86_64" ]; then \
         pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir casadi; \
     fi
 
+# --- acados v0.4.4 (P1a spike: M5 solver migration target DP-05 VR-05) ---
+# ABI consistency: MUST use -D_GLIBCXX_USE_CXX11_ABI=1 to match casadi
+# (sil_nodes.Dockerfile:78-79) and the workspace, else undefined references
+# at link time (same defect as casadi, see comment block line 52-57).
+# HPIPM/BLASFEO built from acados submodules; qpOASES/OSQP off (use HPIPM).
+#
+# IMPORTANT (verified during P1a): acados git tags are v-prefixed (v0.4.4, not
+# 0.4.4); acados_template is NOT on PyPI (must pip install -e from the source
+# tree at interfaces/acados_template); code-gen needs the tera_renderer
+# (t_renderer) binary; and acados_template derives its include path from
+# ACADOS_SOURCE_DIR (utils.get_acados_path -> <dir>/include). That dir MUST be
+# the INSTALL dir (/usr/local), which carries the full header layout
+# (acados/, blasfeo/include/blasfeo_target.h, hpipm/include/) produced by
+# `make install` with BLASFEO_INSTALL_HEADERS=ON. Pointing it at the source
+# tree (/opt/acados) makes the generated Makefile look for blasfeo_target.h
+# under /opt/acados/include/blasfeo/include, which does NOT exist there ->
+# fatal compile error in the generated solver lib. The source tree /opt/acados
+# is KEPT only for the `pip install -e interfaces/acados_template` step.
+ARG ACADOS_TAG=v0.4.4
+RUN git clone --depth 1 --branch ${ACADOS_TAG} https://github.com/acados/acados.git /opt/acados && \
+    cd /opt/acados && \
+    git submodule update --init --recursive && \
+    mkdir -p build && cd build && \
+    cmake .. \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
+      -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=1" \
+      -DACADOS_WITH_QPOASES=OFF \
+      -DACADOS_WITH_OSQP=OFF \
+      -DBLASFEO_INSTALL_HEADERS=ON \
+      -DACADOS_INSTALL_DIR=/usr/local \
+      > /dev/null 2>&1 && \
+    make install -j$(nproc) > /dev/null 2>&1 && \
+    ldconfig && \
+    curl -sL https://github.com/acados/tera_renderer/releases/download/v0.2.0/t_renderer-v0.2.0-linux-amd64 \
+      -o /usr/local/bin/t_renderer && \
+    chmod +x /usr/local/bin/t_renderer
+# ACADOS_SOURCE_DIR points at the INSTALL tree so the code-gen include path
+# resolves the installed acados/blasfeo/hpipm headers.
+ENV ACADOS_SOURCE_DIR=/usr/local
+ENV PATH="${PATH}:/usr/local/bin"
+# Python code-gen interface: install from source tree (NOT on PyPI).
+# setup.py version string is 0.1 and does NOT track the acados tag; the
+# template is coupled to the C library by being checked out at the same tag.
+#
+# CRITICAL: MUST use --no-deps. acados_template's setup.py lists 'casadi' in
+# install_requires, which would pull the casadi pip wheel — a MIXED-ABI build
+# (only ~213 cxx11 symbols, old-ABI GenericType constructors) that clobbers
+# the source-built new-ABI casadi at /usr/local/lib (1498 cxx11 symbols) and
+# breaks the m5 link with undefined references to casadi::*::__cxx11 (the
+# exact defect documented for casadi at line 52-57). The source-built casadi
+# is the authoritative one; acados_template only needs casadi at *runtime*
+# for code-gen and finds it via the already-installed source build. Install
+# the remaining non-casadi deps explicitly.
+RUN pip install --no-deps -e /opt/acados/interfaces/acados_template && \
+    pip install -i https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir \
+      scipy matplotlib future-fstrings cython
+# Post-build assertion (mirror casadi assertion pattern line 86-87)
+RUN ( find /usr/local -name 'libacados.so*' 2>/dev/null | grep -q . || \
+      { echo "FATAL: libacados.so missing after build — P1a spike blocked"; exit 1; } ) && \
+    python3 -c "import acados_template" && \
+    test -x /usr/local/bin/t_renderer && \
+    test -f /usr/local/include/blasfeo/include/blasfeo_target.h && \
+    echo "acados ${ACADOS_TAG} installed (new-ABI + HPIPM + acados_template + t_renderer + install-headers verified)"
+
 # Copy the sim_workbench colcon packages
 COPY src/sim_workbench/sil_lifecycle src/sim_workbench/sil_lifecycle
 COPY src/sim_workbench/sil_nodes      src/sim_workbench/sil_nodes

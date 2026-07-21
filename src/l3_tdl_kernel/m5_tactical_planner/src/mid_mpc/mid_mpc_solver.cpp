@@ -24,6 +24,11 @@ namespace mass_l3::m5::mid_mpc {
 // Calibrate via HAZID RUN-001 WP-04 FM-2 sensitivity analysis (detailed design §7.1).
 constexpr int64_t kConsecutiveFailureEscalation = 5;
 
+// DP-03 b' (VR-03, BL-B): conservative factor for min_alt ROT-reach surrogate.
+// Same value as the acados solver's kSurrogateFudgeFactor (2.0). Divides the
+// effective rot_step so the surrogate accounts for the ~5x MMG oracle gap.
+constexpr double kSurrogateFudgeFactor = 2.0;
+
 // ===========================================================================
 // Constructor — store formulation reference and opts (nlpsol already built).
 // ===========================================================================
@@ -106,6 +111,77 @@ casadi::DM MidMpcSolver::pack_cold_start_(const MidMpcInput& input) const {
 MidMpcSolution MidMpcSolver::solve(const MidMpcInput& input,
                                     const MidMpcSolution* warm_start,
                                     const RowBoundConfig& row_bounds) {
+#ifdef M5_USE_ACADOS
+  // P1b-1b Task 17: dispatch to the production acados backend when it has been
+  // installed (acados_solver_ non-null). The dispatch is a pure #ifdef branch
+  // at the TOP of solve(); the existing IPOPT path below is byte-for-byte
+  // UNCHANGED (no reformatting, no while-I'm-here edits). When the flag is off
+  // this branch compiles to nothing; when on but acados_solver_ is null (e.g.
+  // the node chose IPOPT, or the acados backend failed to construct) solve()
+  // falls through to IPOPT.
+  //
+  // NOTE: row_bounds (Slice N1 / C1 / D1) is an IPOPT-path concern (the acados
+  // formulation encodes prefix activation + CPA schedule via per-stage params
+  // + idxsh, not via lbg/ubg row bounds). The acados wrapper's pack_parameters
+  // already derives prefix_active_k / pact_pre / per-stage drift from the input,
+  // so row_bounds is intentionally NOT forwarded — it would be a no-op there.
+  if (acados_solver_ != nullptr) {
+    // S1 safety gate (T17 review-fix): refuse to dispatch to an acados backend
+    // whose ctor warm-up did NOT converge. A non-converged warm-up leaves the
+    // capsule in the cold-start state where the first real cycle spuriously
+    // reports Infeasible (false DEGRADED/BC-MPC escalation on a feasible
+    // initial state). Fall back to the IPOPT path instead. The acados backend
+    // stays installed (the capsule is valid; it may recover on a later reset),
+    // but the dispatch treats it as unusable until warm_up_succeeded() flips.
+    // (NOTE: this gate does NOT clear acados_solver_ — the lifetime owner
+    // decides that; dispatch only chooses the path for THIS cycle.)
+    if (acados_solver_->warm_up_succeeded()) {
+      // gate-2 (2026-07-19 redesign): CPA-based dispatch gate aligned with the
+      // BC-MPC Override boundary. When ANY target's predicted CPA is below the
+      // BC-MPC takeover threshold (cpa_safe × kAcadosCpaGateMultiplier = 1852m),
+      // the target is inside BC-MPC territory → fallback to IPOPT this cycle
+      // (do NOT compete with BC-MPC Override). Otherwise dispatch acatos in
+      // the ample-time window. See safety memo
+      // 2026-07-19-m5-acados-dispatch-gate2-safety-memo.md and
+      // MidMpcSolver::compute_bc_mpc_territory doc comment.
+      //
+      // Replaces the prior TCPA<2000s guard (P4 T7 I-3 staging guard) which was
+      // 33.3 min — exceeding ample-time literature upper bound (20 min) and
+      // ODD-A ample-time floor (12 min), blocking acatos in 12/12 standard
+      // COLREGs scenarios.
+      const bool bc_mpc_territory = compute_bc_mpc_territory(
+          input, input.constraints.cpa_safe_m);
+      if (!bc_mpc_territory) {
+        MidMpcSolution sol = acados_solver_->solve(input, warm_start);
+        // I-2 (P4 T7): S2 escalation counter — increment on non-converged
+        // acados solve so MRM-02 triggers correctly (was bypassing counter).
+        if (sol.status != MidMpcSolution::Status::Converged &&
+            sol.status != MidMpcSolution::Status::NotInitialized) {
+          ++consecutive_failures_;
+          if (consecutive_failures_ > kConsecutiveFailureEscalation) {
+            spdlog::critical("[M5][MidMPC][acados] {} consecutive failures; M7 MRM-02 escalation",
+                             consecutive_failures_);
+          }
+        } else {
+          consecutive_failures_ = 0;
+        }
+        return sol;
+      }
+      const double cpa_gate_m = input.constraints.cpa_safe_m * kAcadosCpaGateMultiplier;
+      spdlog::warn("[M5][MidMPC] target CPA < {:.0f} m (BC-MPC territory) — "
+                   "acados dispatch skipped, falling back to IPOPT.", cpa_gate_m);
+    } else {
+      // Log-bug fix (2026-07-19): the prior code emitted this warn
+      // UNCONDITIONALLY after the `if (warm_up_succeeded())` block, so it also
+      // fired when gate-2 triggered (warm-up had succeeded but CPA gate hit).
+      // That misled §9.4 of the P0-P7 report into attributing the fallback to
+      // a warm-up failure. Now emitted only on the actual warm-up-failure path.
+      spdlog::warn("[M5][MidMPC] acados backend installed but warm-up did not "
+                   "converge (warm_up_succeeded=false); falling back to IPOPT for "
+                   "this cycle.");
+    }
+  }
+#endif
   const auto t_start = std::chrono::steady_clock::now();
 
   const casadi::DM p_val = formulation_.pack_parameters(input);
@@ -369,9 +445,14 @@ RowBoundConfig derive_row_bound_config(
   // double-disables min_alt rows, schedule is a no-op).
   if (!cfg.direction_disabled) {
     const double rot_step = input.rot_max_rad_s * dt_s;
+    // DP-03 b' (VR-03, BL-B): conservative rot_step for min_alt ROT-reach
+    // accounts for ~5x surrogate-vs-MMG gap. Box-reach M4 hint (when present)
+    // already provides an independent check, so b' only applies to the ROT-only
+    // fallback path.
+    const double bprime_rot_step = rot_step / kSurrogateFudgeFactor;
     if (rot_step > 1e-9) {
       const int32_t k_minalt_rot = static_cast<int32_t>(
-          std::ceil(input.colregs_min_alteration_rad / rot_step)) - 1;
+          std::ceil(input.colregs_min_alteration_rad / bprime_rot_step)) - 1;
       const int32_t k_minalt_rot_clamped = std::max(0, std::min(k_minalt_rot, n_horizon));
 
       const double box_reach_deg =

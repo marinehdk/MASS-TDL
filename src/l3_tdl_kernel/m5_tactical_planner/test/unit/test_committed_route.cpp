@@ -8,9 +8,11 @@
 #include <vector>
 
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
+#include "m5_tactical_planner/committed_route/fallback_manager.hpp"
 
 using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
 using mass_l3::m5::committed_route::CommittedRouteCandidate;
+using mass_l3::m5::committed_route::FallbackManager;
 using mass_l3::m5::committed_route::GeoWP;
 using mass_l3::m5::committed_route::LifecycleState;
 using mass_l3::m5::committed_route::lifecycle_state_name;
@@ -741,6 +743,9 @@ TEST(LifecycleStateName, AllStatesHaveStableNames) {
   EXPECT_STREQ(lifecycle_state_name(LifecycleState::DegradedHold), "DegradedHold");
   EXPECT_STREQ(lifecycle_state_name(LifecycleState::Released), "Released");
   EXPECT_STREQ(lifecycle_state_name(LifecycleState::BcMpcFollow), "BcMpcFollow");
+  // P6: two new states for handover + final degrade
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::HandoverNeutral), "HandoverNeutral");
+  EXPECT_STREQ(lifecycle_state_name(LifecycleState::FinalDegrade), "FinalDegrade");
 }
 
 TEST(LifecycleStateName, DistinctAcrossAllStates) {
@@ -756,6 +761,8 @@ TEST(LifecycleStateName, DistinctAcrossAllStates) {
       LifecycleState::DegradedHold,
       LifecycleState::Released,
       LifecycleState::BcMpcFollow,
+      LifecycleState::HandoverNeutral,   // P6
+      LifecycleState::FinalDegrade,       // P6
   };
   std::vector<std::string> names;
   names.reserve(states.size());
@@ -766,4 +773,438 @@ TEST(LifecycleStateName, DistinctAcrossAllStates) {
   const auto last = std::unique(names.begin(), names.end());
   EXPECT_EQ(last, names.end())
       << "lifecycle_state_name returned duplicate names; audit consumers cannot disambiguate";
+}
+
+// ===========================================================================
+// P6: Handover hysteresis — 2 consecutive dual-condition cycles then commit
+// ===========================================================================
+TEST(CommittedRouteP6, HandoverHysteresis_TwoCycleThenCommit) {
+  CommittedAvoidanceRoute manager;
+  // Start in BcMpcFollow (simulate take-over from Mid-MPC failures)
+  // Set up route + mark takeover
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  // Force into BcMpcFollow via 3 NLP failures
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Cycle 1: dual conditions met (Mid converged, BC predicted CPA safe)
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "1 cycle: still below threshold";
+
+  // Cycle 2: dual conditions still met → HandoverNeutral
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
+      << "2 cycles: transition to HandoverNeutral";
+
+  // Cycle 3: still met → Committed (handover complete)
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::Committed)
+      << "3 cycles: handover complete → Committed";
+  EXPECT_FALSE(manager.bc_mpc_takeover_requested())
+      << "handover complete — takeover flag cleared";
+}
+
+// ===========================================================================
+// P6: Handover hysteresis — broken condition resets counter
+// ===========================================================================
+TEST(CommittedRouteP6, HandoverHysteresis_ResetOnBreak) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Cycle 1: dual conditions met
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Cycle 2: Mid NOT converged → condition broken
+  manager.notify_handover_inputs(false, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "condition broken — still in BcMpcFollow";
+
+  // Cycle 3: met again, but counter was reset → still below threshold
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "counter was reset at cycle 2 — need 2 more continuous cycles";
+}
+
+// ===========================================================================
+// P6: FinalDegrade dual-condition — BC failed AND Mid unrecovered
+// ===========================================================================
+TEST(CommittedRouteP6, FinalDegrade_BCFailedAndMidUnrecovered) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Simulate Condition A (BC override_no_improve >= 5) + Condition B (Mid unrecovered >= 3)
+  manager.notify_bc_mpc_health(5U, 100.0, true);
+  // Feed 3 cycles of Mid-not-converged to build Condition B
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+
+  EXPECT_TRUE(manager.should_enter_final_degrade())
+      << "Condition A >=5 && Condition B >=3 → should enter FinalDegrade";
+}
+
+TEST(CommittedRouteP6, FinalDegrade_NotTriggeredWhenOnlyBCFailed) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Condition A=5, Condition B=0 → must NOT trigger
+  manager.notify_bc_mpc_health(5U, 100.0, true);
+  EXPECT_FALSE(manager.should_enter_final_degrade())
+      << "Condition B=0, only Condition A → no FinalDegrade";
+}
+
+TEST(CommittedRouteP6, FinalDegrade_NotTriggeredWhenOnlyMidUnrecovered) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Condition A=0, Condition B=3 → must NOT trigger
+  manager.notify_bc_mpc_health(0U, 1.0e9, false);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+  EXPECT_FALSE(manager.should_enter_final_degrade())
+      << "Condition A=0, only Condition B → no FinalDegrade";
+}
+
+// ===========================================================================
+// P6: FinalDegrade enter_final_degrade() sets state + event
+// ===========================================================================
+TEST(CommittedRouteP6, EnterFinalDegrade_SetsStateAndEvent) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  manager.enter_final_degrade();
+  EXPECT_EQ(manager.current().state, LifecycleState::FinalDegrade);
+  EXPECT_EQ(manager.current().safety_concern_event, "bc_final_degrade");
+}
+
+// ===========================================================================
+// P6: try_revise does NOT override HandoverNeutral or FinalDegrade
+// ===========================================================================
+TEST(CommittedRouteP6, TryRevise_PreservesHandoverNeutral) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Reach HandoverNeutral
+  manager.notify_handover_inputs(true, 2000.0);
+  manager.notify_handover_inputs(true, 2000.0);
+  ASSERT_EQ(manager.current().state, LifecycleState::HandoverNeutral);
+
+  // try_revise should NOT override HandoverNeutral
+  EXPECT_FALSE(manager.try_revise(
+      candidate("good-plan", route_b_with_same_prefix(), 2U, 50.0, true), 10.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
+      << "try_revise must preserve HandoverNeutral";
+}
+
+TEST(CommittedRouteP6, TryRevise_PreservesFinalDegrade) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  manager.enter_final_degrade();
+  ASSERT_EQ(manager.current().state, LifecycleState::FinalDegrade);
+
+  // try_revise should NOT override FinalDegrade
+  EXPECT_FALSE(manager.try_revise(
+      candidate("good-plan", route_b_with_same_prefix(), 2U, 50.0, true), 10.0));
+  EXPECT_EQ(manager.current().state, LifecycleState::FinalDegrade)
+      << "try_revise must preserve FinalDegrade";
+}
+
+// ===========================================================================
+// P6 regression: FinalDegrade must NOT revert to DegradedHold on stale gate
+// (C-1: should_enter_degraded_hold now guards FinalDegrade)
+// ===========================================================================
+TEST(CommittedRouteP6, FinalDegrade_StaleGateDoesNotRevert) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+  manager.enter_final_degrade();
+  ASSERT_EQ(manager.current().state, LifecycleState::FinalDegrade);
+
+  // Stale gate at 46s (past 45s threshold) must NOT revert to DegradedHold
+  EXPECT_FALSE(manager.should_enter_degraded_hold(46.0))
+      << "FinalDegrade must survive stale gate";
+  EXPECT_EQ(manager.current().state, LifecycleState::FinalDegrade)
+      << "state unchanged after stale gate probe";
+}
+
+// ===========================================================================
+// P6 regression: HandoverNeutral must NOT revert to DegradedHold on stale gate
+// ===========================================================================
+TEST(CommittedRouteP6, HandoverNeutral_StaleGateDoesNotRevert) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false), static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Reach HandoverNeutral
+  manager.notify_handover_inputs(true, 2000.0);
+  manager.notify_handover_inputs(true, 2000.0);
+  ASSERT_EQ(manager.current().state, LifecycleState::HandoverNeutral);
+
+  // Stale gate must NOT revert to DegradedHold
+  EXPECT_FALSE(manager.should_enter_degraded_hold(46.0))
+      << "HandoverNeutral must survive stale gate";
+  EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
+      << "state unchanged after stale gate probe";
+}
+
+// ===========================================================================
+// L5: BC->L4 contract tests — verify that BC-MPC takeover produces the
+// correct lifecycle state and that the state maps to the expected
+// avoidance_plan commit_branch / status markers.
+// ===========================================================================
+
+// When BC-MPC takeover is signaled and the escalation threshold is reached,
+// the lifecycle MUST transition to BcMpcFollow. This is the upstream signal
+// that publish_committed_route_() reads to emit COMMIT_BRANCH_BCMPC_FOLLOW.
+TEST(BcToL4Contract, TakeoverSignalYieldsBcMpcFollowState)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager;
+
+  // Simulate BC-MPC take-over signal from Mid-MPC (bc_mpc_should_take_over)
+  manager.mark_bc_mpc_takeover();
+
+  // Commit 3 NLP-failure candidates to reach the escalation threshold.
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Cycle 1: commit fails, counter=1
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  // Cycle 2: commit fails, counter=2 (still below threshold)
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  // Cycle 3: commit fails, counter=3 -> escalation with bc_mpc_takeover_requested_=true
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+
+  // Contract: after 3 failures with takeover signaled, state MUST be BcMpcFollow.
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "L5 BC->L4 contract: takeover + 3 NLP failures -> BcMpcFollow";
+  EXPECT_STREQ(manager.current().safety_concern_event.c_str(),
+               "bc_mpc_takeover_active");
+}
+
+// When BcMpcFollow state is active, the publish_committed_route_ function
+// MUST NOT emit DegradedHold or KeepLast — it must emit BcMpcFollow markers
+// (commit_branch=COMMIT_BRANCH_BCMPC_FOLLOW, status=BCMPC_FOLLOW).
+// This test verifies the lifecycle-state guard: BcMpcFollow is preserved
+// across stale gates and further NLP failures.
+TEST(BcToL4Contract, BcMpcFollowResistsStaleGateAndReEscalation)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager(/*stale_route_max_age_s=*/45.0);
+  manager.mark_bc_mpc_takeover();
+
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Push into BcMpcFollow via 3 NLP failures + takeover signal.
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Stale gate must NOT revert to DegradedHold — §13.2: BcMpcFollow survives stale.
+  EXPECT_FALSE(manager.should_enter_degraded_hold(50.0))
+      << "L5 BC->L4 contract: BcMpcFollow must survive stale gate (>45s)";
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "state unchanged after stale gate probe";
+
+  // Further NLP failures must NOT re-escalate BcMpcFollow to DegradedHold.
+  // try_revise returns false for BcMpcFollow (per §13.2), keeping the state.
+  fail_candidate.plan_id = "test2";
+  const bool committed = manager.try_revise(fail_candidate, 4.0);
+  EXPECT_FALSE(committed) << "BcMpcFollow must reject commits (BC-MPC owns maneuver)";
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "state unchanged after try_revise while in BcMpcFollow";
+}
+
+// After takeover flag is cleared (successful NLP revise), the committed route
+// must be able to exit BcMpcFollow via the handover hysteresis path.
+// This verifies the downstream (BC->Mid handback) leg of the contract.
+TEST(BcToL4Contract, BcMpcFollowHandoverToCommitted)
+{
+  using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
+  using mass_l3::m5::committed_route::LifecycleState;
+
+  CommittedAvoidanceRoute manager;
+  manager.mark_bc_mpc_takeover();
+
+  CommittedRouteCandidate fail_candidate;
+  fail_candidate.plan_id = "test";
+  fail_candidate.nlp_ok = false;
+  fail_candidate.geometry.push_back(GeoWP{1.0, 2.0, 3.0, "emergency_avoidance"});
+  fail_candidate.geometry.push_back(GeoWP{1.1, 2.1, 3.0, "emergency_avoidance"});
+
+  // Push into BcMpcFollow.
+  static_cast<void>(manager.try_revise(fail_candidate, 1.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 2.0));
+  static_cast<void>(manager.try_revise(fail_candidate, 3.0));
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Dual condition met (Mid converged + BC CPA safe) — hysteresis accumulates.
+  manager.notify_handover_inputs(true, 2000.0);  // cycle 1: hysteresis=1
+  EXPECT_EQ(manager.current().state, LifecycleState::BcMpcFollow)
+      << "1st dual-condition cycle: still BcMpcFollow";
+
+  manager.notify_handover_inputs(true, 2000.0);  // cycle 2: hysteresis=2 -> HandoverNeutral
+  EXPECT_EQ(manager.current().state, LifecycleState::HandoverNeutral)
+      << "L5 BC->L4 contract: 2 cycles dual-condition -> HandoverNeutral";
+
+  // One more cycle in HandoverNeutral: conditions still met -> Committed
+  manager.notify_handover_inputs(true, 2000.0);
+  EXPECT_EQ(manager.current().state, LifecycleState::Committed)
+      << "L5 BC->L4 contract: HandoverNeutral + dual-condition -> Committed";
+  EXPECT_FALSE(manager.bc_mpc_takeover_requested())
+      << "takeover flag cleared on successful handover";
+}
+
+// ===========================================================================
+// P6: FallbackManager (spec SS5.4) — FinalDegrade evidence capture tests
+// ===========================================================================
+
+TEST(FallbackManagerP6, InitiallyNotTriggered) {
+  FallbackManager fm;
+  EXPECT_FALSE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_FALSE(ev.triggered);
+}
+
+TEST(FallbackManagerP6, RecordFinalDegradeSetsEvidence) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      5U, 3U, 100.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 42.0);
+
+  EXPECT_TRUE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_TRUE(ev.triggered);
+  EXPECT_EQ(ev.bc_override_no_improve_count, 5U);
+  EXPECT_EQ(ev.mid_unrecovered_count, 3U);
+  EXPECT_DOUBLE_EQ(ev.bc_worst_case_cpa_m, 100.0);
+  EXPECT_FALSE(ev.mid_last_converged);
+  EXPECT_EQ(ev.safety_concern_event, "bc_final_degrade");
+  EXPECT_EQ(ev.lifecycle_state, "FinalDegrade");
+  EXPECT_EQ(ev.suggested_action, "MRM");
+  EXPECT_DOUBLE_EQ(ev.timestamp_s, 42.0);
+}
+
+TEST(FallbackManagerP6, ResetClearsEvidence) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      5U, 3U, 100.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 42.0);
+  ASSERT_TRUE(fm.mrm_suggested());
+
+  fm.reset();
+  EXPECT_FALSE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_FALSE(ev.triggered);
+  EXPECT_EQ(ev.bc_override_no_improve_count, 0U);
+}
+
+TEST(FallbackManagerP6, MultipleRecordOverwrites) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      3U, 1U, 500.0, true,
+      "early_warning", "DegradedHold", "NONE", 10.0);
+  fm.record_final_degrade(
+      6U, 4U, 80.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 20.0);
+
+  EXPECT_TRUE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_EQ(ev.bc_override_no_improve_count, 6U);
+  EXPECT_EQ(ev.mid_unrecovered_count, 4U);
+  EXPECT_DOUBLE_EQ(ev.bc_worst_case_cpa_m, 80.0);
+  EXPECT_DOUBLE_EQ(ev.timestamp_s, 20.0);
+}
+
+// ===========================================================================
+// P6: CommittedAvoidanceRoute accessors for FinalDegrade evidence
+// ===========================================================================
+
+TEST(CommittedRouteP6, AccessorsReturnTriggerCounters) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(
+        candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false),
+        static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Before BC health is notified, counters should be at defaults
+  EXPECT_EQ(manager.bc_override_no_improve_count(), 0U);
+  EXPECT_EQ(manager.mid_unrecovered_count(), 0U);
+  EXPECT_TRUE(manager.mid_last_converged());
+
+  // Notify BC health + 3 cycles of Mid-not-converged
+  manager.notify_bc_mpc_health(7U, 200.0, true);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+
+  EXPECT_EQ(manager.bc_override_no_improve_count(), 7U);
+  EXPECT_GE(manager.mid_unrecovered_count(), 3U);
+  EXPECT_FALSE(manager.mid_last_converged());
 }

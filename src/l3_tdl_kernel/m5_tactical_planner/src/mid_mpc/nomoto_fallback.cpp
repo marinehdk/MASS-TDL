@@ -15,7 +15,7 @@ NomotoFallback::NomotoFallback(
     const shared::CapabilityManifest& manifest)
     : cfg_(cfg),
       nomoto_T_s_(manifest.config().nomoto_T_s),
-      nomoto_K_inv_s_(manifest.config().nomoto_K_inv_s) {}
+      nomoto_K_s_(manifest.config().nomoto_K_s) {}
 
 // ---------------------------------------------------------------------------
 // integrate_branch — Forward-Euler integration of one constant-heading branch

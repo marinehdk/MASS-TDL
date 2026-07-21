@@ -15,9 +15,12 @@
 #include "ship_interfaces/msg/gnc_execution_odd.hpp"
 #include "l3_msgs/msg/asdr_record.hpp"
 #include "l3_msgs/msg/avoidance_plan.hpp"
+#include "l3_msgs/msg/bc_mpc_health.hpp"
 #include "l3_msgs/msg/behavior_plan.hpp"
 #include "l3_msgs/msg/colre_gs_constraint.hpp"
 #include "l3_msgs/msg/own_ship_state.hpp"
+#include "l3_msgs/msg/reactive_override_cmd.hpp"
+#include "l3_msgs/msg/safety_concern_event.hpp"
 #include "l3_msgs/msg/sat_data.hpp"
 #include "l3_msgs/msg/world_state.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -25,9 +28,13 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
+#include "m5_tactical_planner/committed_route/fallback_manager.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
+#ifdef M5_USE_ACADOS
+#include "m5_tactical_planner/mid_mpc/mid_mpc_acados_formulation.hpp"
+#endif
 #include "m5_tactical_planner/mid_mpc/mid_mpc_waypoint_generator.hpp"
 #include "m5_tactical_planner/shared/capability_manifest.hpp"
 #include "m5_tactical_planner/shared/vessel_dynamics_model.hpp"
@@ -74,9 +81,15 @@ class MidMpcNode : public rclcpp::Node {
   MidMpcNlpFormulation        formulation_;
   MidMpcSolver                solver_;
   MidMpcWaypointGenerator     wp_gen_;
+#ifdef M5_USE_ACADOS
+  std::unique_ptr<MidMpcAcadosFormulation> acados_formulation_;
+#endif
   std::optional<MidMpcSolution> last_solution_;
   mass_l3::risk::RankingState risk_ranking_state_;
   mass_l3::m5::committed_route::CommittedAvoidanceRoute committed_route_manager_;
+  // P6: FallbackManager tracks FinalDegrade -> MRM state transitions and
+  // holds evidence for ASDR audit records (spec SS5.4).
+  mass_l3::m5::committed_route::FallbackManager fallback_manager_;
 
   l3_msgs::msg::WorldState::SharedPtr                        world_state_;
   l3_msgs::msg::BehaviorPlan::SharedPtr                      behavior_plan_;
@@ -88,6 +101,8 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Publisher<l3_msgs::msg::ASDRRecord>::SharedPtr     pub_asdr_record_;
   rclcpp::Publisher<l3_msgs::msg::SATData>::SharedPtr        pub_sat_data_;
   rclcpp::Publisher<l3_msgs::msg::SAT3Data>::SharedPtr       pub_sat3_data_;
+  // P6: SafetyConcernEvent for FINAL_DEGRADE — M7 is the consumer
+  rclcpp::Publisher<l3_msgs::msg::SafetyConcernEvent>::SharedPtr pub_safety_concern_;
   // v2.2 §13.1: publish consecutive_failures so BC-MPC (Phase E2) can take over
   // when the NLP solver is stuck. Best-effort QoS — BC-MPC treats a stale/missing
   // value as 0 (no take-over).
@@ -99,11 +114,25 @@ class MidMpcNode : public rclcpp::Node {
   rclcpp::Subscription<l3_external_msgs::msg::PlannedRoute>::SharedPtr  sub_route_;
   rclcpp::Subscription<l3_external_msgs::msg::SpeedProfile>::SharedPtr  sub_speed_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr                sub_scenario_loaded_;
+  // P6: BC-MPC health metrics — forwarded to committed_route for Condition A
+  rclcpp::Subscription<l3_msgs::msg::BcMpcHealth>::SharedPtr            sub_bc_health_;
   // W2: GNC execution-ODD contract (latched). M5 consumes the actual execution
   // limits to generate reachable avoidance geometry (W4) instead of hardcoding.
   rclcpp::Subscription<ship_interfaces::msg::GncExecutionOdd>::SharedPtr sub_gnc_odd_;
   ship_interfaces::msg::GncExecutionOdd latest_gnc_odd_;
   mutable std::mutex gnc_odd_mutex_;
+
+  // P6: cached BC health (mutex-protected, written from health sub callback,
+  // read from on_solve_cycle_ main thread)
+  l3_msgs::msg::BcMpcHealth last_bc_health_;
+  std::mutex bc_health_mutex_;
+
+  // L5: BC-MPC ReactiveOverrideCmd subscription — cached for BcMpcFollow plan
+  // construction so the avoidance_plan can carry BC-MPC's heading/speed.
+  rclcpp::Subscription<l3_msgs::msg::ReactiveOverrideCmd>::SharedPtr sub_override_cmd_;
+  l3_msgs::msg::ReactiveOverrideCmd last_override_cmd_;
+  bool has_override_cmd_{false};
+  std::mutex override_cmd_mutex_;
 
   rclcpp::TimerBase::SharedPtr solve_timer_;
 
@@ -113,6 +142,11 @@ class MidMpcNode : public rclcpp::Node {
   [[nodiscard]] ship_interfaces::msg::GncExecutionOdd effective_gnc_odd_() const;
 
   double nominal_speed_kn_{10.0};
+
+  // L0-C: CPA hard floor [m]. Read from ROS param m5.cpa_hard_m at startup;
+  // defaults to kCpaSafeFallback_m (1852.0) when param absent or invalid.
+  // Calibrate via odd_aware_thresholds.yaml cpa_hard_m (shared with M6/M2).
+  double cpa_hard_m_{1852.0};
 
   void on_solve_cycle_();
   [[nodiscard]] bool has_required_inputs_() const noexcept;
@@ -129,6 +163,9 @@ class MidMpcNode : public rclcpp::Node {
   // than losing the route entirely.
   void publish_keep_last_(rclcpp::Time now, const std::string& reason);
   void publish_trajectory_candidates_(const MidMpcInput& input);
+
+  // P6: publish SafetyConcernEvent with CONCERN_BC_FINAL_DEGRADE on FinalDegrade
+  void publish_safety_concern_final_degrade_();
 
   // Phase 1.4 (G-M5-2/3, spec v2.3 §15): audit-trail emitters for the
   // committed-route reject / tail-gate reject paths. These previously only
@@ -155,14 +192,10 @@ class MidMpcNode : public rclcpp::Node {
   // failure such as tail_spacing_invalid) is honest degradation and MUST NOT
   // contaminate candidate.nlp_ok. The NLP solver's convergence verdict is
   // authoritative; mixing TailBuilder geometry failures into nlp_tail_gate_failed
-  // caused 135 spurious optimized_committed_rejected escalations on rule14-ho
-  // (DegradedHold → keep_last empty plan → GNC invalid_avoidance_route × 32).
-  // Emit on /l3/asdr/record so future debugging does not require container logs.
-  void emit_tail_builder_rejected_asdr_(
-      rclcpp::Time now,
-      const std::string& reject_reason,
-      const std::string& plan_id);
-  // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
+	  // caused 135 spurious optimized_committed_rejected escalations on rule14-ho
+	  // (DegradedHold → keep_last empty plan → GNC invalid_avoidance_route × 32).
+	  // P4 VR-02: emit_tail_builder_rejected_asdr_ REMOVED (TailBuilder retired).
+	  // Phase 1.4 (G-GNC-1, spec v2.3 §15): M5 self-audit when it is about to
   // publish an empty-waypoints avoidance_plan. GNC active_route_manager
   // silently rejects plans with fewer than 2 waypoints (size>=2 hard gate),
   // so an empty plan from M5 BcMpcFollow/KeepLast-empty/TRANSIT branches
@@ -174,6 +207,10 @@ class MidMpcNode : public rclcpp::Node {
       const std::string& reason,
       const std::string& plan_id,
       const std::string& plan_status);
+
+  // P6: emit ASDR record when FinalDegrade is entered so the MRM trigger
+  // evidence is recoverable from /l3/asdr/record alone (closes spec §5.4 gap).
+  void emit_final_degrade_asdr_(rclcpp::Time now);
 
   // Publish the committed avoidance route on /l3/m5/avoidance_plan (the only
   // execution-truth topic M5 owns; the legacy /l3/m5/avoidance_waypoints shadow
@@ -190,16 +227,8 @@ class MidMpcNode : public rclcpp::Node {
                                 const l3_msgs::msg::AvoidancePlan& selected_plan,
                                 const MidMpcSolution& sol);
   // Slice W1 (spec §5.3): build the TailBuilder hold[+rejoin] segment from the
-  // NLP terminal state + M6 lifecycle + L2 route-frame and append its NED
-  // waypoints to the AvoidancePlan parallel arrays (between MID_MPC_OPTIMIZED
-  // and L2_NOMINAL_SUFFIX). Returns the reject_reason if TailBuilder declined
-  // (caller marks the candidate nlp_tail_gate_failed); empty on success/no-op.
-  std::string append_tail_waypoints_(l3_msgs::msg::AvoidancePlan& plan,
-                                     const MidMpcInput& input,
-                                     const MidMpcSolution& sol,
-                                     double lat0_deg,
-                                     double lon0_deg);
-  bool last_emitted_conflict_active_{false};
+	  // P4 VR-02: append_tail_waypoints_ retired. 1200s NLP covers full lifecycle.
+	  bool last_emitted_conflict_active_{false};
   std::optional<rclcpp::Time> return_to_route_emit_until_;
   struct AvoidanceCorridorAnchor {
     double lat_deg{0.0};

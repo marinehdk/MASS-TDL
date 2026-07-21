@@ -83,8 +83,8 @@ static void load_mmg(const YAML::Node& v, CapabilityManifest::Config& cfg) {
 static void load_nomoto(const YAML::Node& v, CapabilityManifest::Config& cfg) {
   const YAML::Node& nm = v["nomoto"];
   if (!nm || nm.IsNull()) { return; }
-  cfg.nomoto_T_s     = yaml_get<double>(nm, "T_s",     cfg.nomoto_T_s);
-  cfg.nomoto_K_inv_s = yaml_get<double>(nm, "K_inv_s", cfg.nomoto_K_inv_s);
+  cfg.nomoto_T_s = yaml_get<double>(nm, "T_s", cfg.nomoto_T_s);
+  cfg.nomoto_K_s = yaml_get<double>(nm, "K_s", cfg.nomoto_K_s);
 }
 
 }  // namespace

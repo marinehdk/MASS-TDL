@@ -92,12 +92,23 @@ class ConstraintCompiler {
   // structural Infeasibility; sigma activates only when geometry is genuinely
   // unreachable). When empty (slack disabled), behavior is the legacy
   // hard-only form d_k^2 - cpa_hard^2 >= 0.
+  //
+  // Q4 σ-conditional fix (BL-15, L1b ③): sigma is only added to rows with
+  // k >= prefix_K. Prefix-stage rows (k < prefix_K) are already bounds-softened
+  // by RowBoundConfig::apply_colreg_prefix_soften_, so adding sigma to those
+  // rows has no effect on feasibility but wastes the slack variable on frozen-
+  // geometry rows that the solver cannot change. Worse, sigma is a SINGLE
+  // scalar shared across ALL CPA rows — a prefix violation absorbed by sigma
+  // would reduce the slack headroom available to suffix (k >= prefix_K) rows,
+  // creating a false-negative fail-open (Converged + sigma > 0 instead of
+  // Infeasible). Default 0 = legacy behavior (sigma on all rows).
   [[nodiscard]] CompiledConstraints compile_cpa_distance(
       const casadi::MX& psi_seq,
       const casadi::MX& u_seq,
       const ConstraintInputs& inputs,
       double dt_s,
-      const casadi::MX& slack = casadi::MX()) const;
+      const casadi::MX& slack = casadi::MX(),
+      int32_t prefix_K = 0) const;
 
   [[nodiscard]] CompiledConstraints compile_colregs_rules(
       const casadi::MX& psi_seq,
@@ -128,29 +139,12 @@ class ConstraintCompiler {
       double dt_s,
       double rot_max_rad_s) const;
 
-  // Rule 14 (Head-on): give-way shall alter course to starboard.
-  // [TBD-HAZID] min turn angle 5°: calibrate from encounter simulation data.
-  [[nodiscard]] CompiledConstraints compile_rule14(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 15 (Crossing): give-way shall pass astern; turn starboard.
-  // [TBD-HAZID] min turn angle 5°: calibrate from encounter simulation data.
-  [[nodiscard]] CompiledConstraints compile_rule15(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 16 (Give-way action): take early substantial action.
-  // [TBD-HAZID] 10° within first N/2 steps: calibrate from encounter data.
-  [[nodiscard]] CompiledConstraints compile_rule16(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
-
-  // Rule 17 (Stand-on): maintain course and speed.
-  // [TBD-HAZID] epsilon 5°: calibrate per ODD / sea state.
-  [[nodiscard]] CompiledConstraints compile_rule17(
-      const casadi::MX& psi_seq,
-      double psi_initial_rad) const;
+  // COREGs rules 14-17 handling — REMOVED in P5 T4 (VR-04).
+  // The M6 geometry rows (direction + min_alt) are now provided by the
+  // FORMULATION layer (Slice D1) for both acados and IPOPT paths.
+  // The compiler-level hardcoded degree offsets (5°/5°/10°/5°) were
+  // redundant and could conflict with the formulation-layer geometry.
+  // Each rule now emits only an audit marker in compile_colregs_rules.
 
   // Per-zone, per-step accumulation helper (extracted to honour 60-line limit).
   [[nodiscard]] CompiledConstraints build_zone_steps(

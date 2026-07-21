@@ -86,6 +86,16 @@ def main(argv=None):
         default="sil",
         help="Execution stack target (sil=default, gnc=GNC integration).",
     )
+    parser.add_argument(
+        "--m5-short-avoidance-gate",
+        action="store_true",
+        help=(
+            "Cap the sim horizon at 900s so two complete 90s M5 optimized-"
+            "avoidance cadence windows can be judged without running the full "
+            "encounter+return lifecycle. Forwards --total-time-override 900.0 "
+            "to the underlying runner unless the caller supplied a smaller one."
+        ),
+    )
     known, remaining = parser.parse_known_args(argv)
     if "--list" in remaining:
         return _load_runner().main(remaining)
@@ -93,6 +103,20 @@ def main(argv=None):
     # Forward the resolved profile into the runner so it can apply profile-aware
     # behaviour (e.g. the gnc three-container restart set) without re-parsing.
     remaining = ["--profile", known.profile, *remaining]
+    # FAST gate: cap the sim horizon at 900s so the M5 optimized-avoidance
+    # cadence can be judged quickly without running the full encounter+return
+    # lifecycle. If the caller already supplied --total-time-override, honor
+    # the smaller of the two; otherwise inject 900.0.
+    if known.m5_short_avoidance_gate:
+        if "--total-time-override" in remaining:
+            idx = remaining.index("--total-time-override")
+            try:
+                existing = float(remaining[idx + 1])
+                remaining[idx + 1] = str(min(existing, 900.0))
+            except (IndexError, ValueError):
+                pass
+        else:
+            remaining.extend(["--total-time-override", "900.0"])
     return _load_runner().main(remaining)
 
 

@@ -23,11 +23,11 @@ namespace {
 
 // [TBD-HAZID] IPOPT max iterations per Mid-MPC cycle.
 // Default 150; calibrate from FCB sea-trial timing data (HAZID RUN-001 WP-04).
-// Fix #8 (2026-07-07): increased from 500→800 and CPU time 2.0→3.0.
-// The L-BFGS Hessian rebuild (per-cycle build_symbolic_graph) was the primary
-// bottleneck; with caching the solver converges faster, but a deeper limit
-// provides headroom for complex encounters.
-constexpr int32_t kIpoptMaxIter = 800;
+// P4 N=80 (dt=15, horizon 1200s) has 80×17=1360 decision vars vs N=18×17=306.
+// Complex constrained scenarios (prefix equality, direction bounds, terminal
+// constraints) need more iterations — each iteration ~1.7ms, so 5000 iterations
+// takes ~8.5s, well within the 60s cycle SLA.
+constexpr int32_t kIpoptMaxIter = 5000;
 
 // [TBD-HAZID] IPOPT convergence tolerance.
 // Default 1e-4; calibrate per detailed design §5.2.4 SLA budget.
@@ -41,8 +41,10 @@ constexpr double kIpoptAcceptableTol = 1.0e-3;
 // [TBD-HAZID] Minimum IPOPT iterations before acceptable_tol-based early exit.
 constexpr int32_t kIpoptAcceptableIter = 5;
 
-// [TBD-HAZID] IPOPT max CPU time [s] — 2.0 s within 1 Hz cycle (detailed design §5.2.4).
-constexpr double kIpoptMaxCpuTime = 3.0;
+// [TBD-HAZID] IPOPT max CPU time [s] — P4 N=80 (dt=15) needs ~15-25 s to converge
+// the full 80-step OCP within 60 s cycle SLA (solve_timer P4 VR-06b).
+// Legacy N=18 fit within 3.0 s — not updated in P4 → Timeout on every 80-step solve.
+constexpr double kIpoptMaxCpuTime = 30.0;
 
 // [TBD-HAZID] Default ROT max [rad/s] when caller does not override via p_.
 // 0.2094 rad/s ≈ 12°/s; FCB nominal at 18 kn (vessel_dynamics_model default).
@@ -574,8 +576,9 @@ casadi::MX MidMpcNlpFormulation::build_constraints_() const {
   // ConstraintCompiler rows (numeric-baked; G1 rebuild model).
   // Phase 3.1 (spec v2.3 §2.2): forward σ to compile_cpa_distance so every
   // CPA row gets +sigma in the expression (feasibility-preserving slack).
+  // Q4 (BL-15): prefix_K_ gates σ-conditional — only suffix rows get sigma.
   const auto cpa_cc = compiler_.compile_cpa_distance(
-      psi_, u_, constraint_inputs_, cfg_.dt_s, sigma_);
+      psi_, u_, constraint_inputs_, cfg_.dt_s, sigma_, prefix_K_);
   const auto rule_cc = compiler_.compile_colregs_rules(
       psi_, u_, constraint_inputs_);
   const auto zone_cc = compiler_.compile_zone_constraints(
@@ -654,6 +657,11 @@ void MidMpcNlpFormulation::build_symbolic_graph() {
   opts["ipopt.print_level"]           = 0;
   opts["ipopt.linear_solver"]         = std::string{"mumps"};
   opts["ipopt.hessian_approximation"] = std::string{"limited-memory"};
+  // P4 N=80: increase L-BFGS history from default 6 to 50 for 1360-decision-var
+  // problem. Default 6 stores only 6 past (s,y) pairs, which is insufficient
+  // Hessian curvature info for the larger problem — IPOPT stalls at iter=5000
+  // with Maximum_Iterations_Exceeded on complex constraints (direction, terminal).
+  opts["ipopt.limited_memory_max_history"] = 50;
   opts["ipopt.max_cpu_time"]          = kIpoptMaxCpuTime;
   opts["ipopt.bound_push"]            = 1.0e-4;
   opts["ipopt.bound_frac"]            = 1.0e-4;

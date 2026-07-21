@@ -24,18 +24,6 @@ namespace bg = boost::geometry;
 using BgPoint   = bg::model::d2::point_xy<double>;
 using BgPolygon = bg::model::polygon<BgPoint>;
 
-// [TBD-HAZID] Rule 14/15 minimum starboard turn angle [rad].
-// Default 5°; calibrate from encounter simulation data (HAZID RUN-001 WP-05).
-constexpr double kRule1415_min_turn_rad = 5.0 * M_PI / 180.0;
-
-// [TBD-HAZID] Rule 16 substantial action threshold [rad] within first N/2 steps.
-// Default 10°; calibrate from encounter simulation data (HAZID RUN-001 WP-05).
-constexpr double kRule16_substantial_rad = 10.0 * M_PI / 180.0;
-
-// [TBD-HAZID] Rule 17 stand-on epsilon [rad]. Default 5°.
-// Calibrate per ODD domain and sea state (HAZID RUN-001 WP-05).
-constexpr double kRule17_epsilon_rad = 5.0 * M_PI / 180.0;
-
 // IPOPT convention: upper bound = +infinity for one-sided inequalities.
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
@@ -163,91 +151,32 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rot_limit(
 }
 
 // ===========================================================================
-// compile_rule14() — Rule 14 (Head-on): psi[N-1] >= psi_0 + 5°
-// Phase E1 simplified: full encounter geometry (target bearing, CPA) deferred to Phase E2.
+// compile_rule14/15/16/17 — REMOVED in P5 T4 (VR-04).
+// These previously emitted hardcoded degree offsets (5°/5°/10°/5°).
+// The M6 geometry rows (direction + min_alt) are now provided by the
+// FORMULATION layer (Slice D1 in both acados and IPOPT paths):
+//   g_dir[k]    = preferred_direction · l[k]                 (same-side)
+//   g_minalt[k] = preferred_direction · (psi[k]-own_psi) - min_alt
+// which are role-gated and M6-driven. The compiler-level hardcoded offsets
+// were redundant and could conflict with the formulation-layer geometry.
+// Each rule now emits a trivially-satisfied g=0 audit marker so the rule
+// is SAT-2 visible in the active-set log (same pattern as Rule13).
 // ===========================================================================
-ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule14(
-    const casadi::MX& psi_seq, double psi_initial_rad) const {
-  const int32_t N = static_cast<int32_t>(psi_seq.size1());
-  casadi::MX psi_last = psi_seq(casadi::Slice(N - 1, N));
-  casadi::MX g = psi_last - casadi::DM(psi_initial_rad + kRule1415_min_turn_rad);
-  casadi::DM lb = casadi::DM::zeros(1, 1);
-  casadi::DM ub = casadi::DM(kInf);
-  return {g, lb, ub, {"rule_14_starboard_turn"}};
-}
-
-// ===========================================================================
-// compile_rule15() — Rule 15 (Crossing): psi[k] >= psi_0 + 5° for ALL k in [0..N-1]
-// Phase E1 simplified: full encounter geometry (target bearing, CPA) deferred to Phase E2.
-// ===========================================================================
-ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule15(
-    const casadi::MX& psi_seq, double psi_initial_rad) const {
-  const int32_t N = static_cast<int32_t>(psi_seq.size1());
-  CompiledConstraints result{};
-  for (int32_t k = 0; k < N; ++k) {
-    casadi::MX psi_k = psi_seq(casadi::Slice(k, k + 1));
-    casadi::MX g_k   = psi_k - casadi::DM(psi_initial_rad + kRule1415_min_turn_rad);
-    CompiledConstraints cc_k;
-    cc_k.g     = g_k;
-    cc_k.g_lb  = casadi::DM::zeros(1, 1);
-    cc_k.g_ub  = casadi::DM(kInf);
-    cc_k.names = {"rule_15_starboard_turn[" + std::to_string(k) + "]"};
-    result = stack(std::move(result), cc_k);
-  }
-  return result;
-}
-
-// ===========================================================================
-// compile_rule16() — Rule 16 (Give-way): psi[N/2] >= psi_0 + 10°
-// ===========================================================================
-ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule16(
-    const casadi::MX& psi_seq, double psi_initial_rad) const {
-  const int32_t N   = static_cast<int32_t>(psi_seq.size1());
-  if (N < 2) { return {}; }
-  const int32_t mid = (N / 2 > 0) ? (N / 2) : 0;
-  casadi::MX psi_mid = psi_seq(casadi::Slice(mid, mid + 1));
-  casadi::MX g = psi_mid - casadi::DM(psi_initial_rad + kRule16_substantial_rad);
-  casadi::DM lb = casadi::DM::zeros(1, 1);
-  casadi::DM ub = casadi::DM(kInf);
-  return {g, lb, ub, {"rule_16_substantial_action"}};
-}
-
-// ===========================================================================
-// compile_rule17() — Rule 17 (Stand-on): |psi[k] - psi_0| <= 5° for all k
-// Produces 2*N constraints (upper and lower bound per step).
-// ===========================================================================
-ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_rule17(
-    const casadi::MX& psi_seq, double psi_initial_rad) const {
-  const int32_t N = static_cast<int32_t>(psi_seq.size1());
-  const casadi::DM eps(kRule17_epsilon_rad);
-  casadi::MX dpsi = psi_seq - casadi::DM(psi_initial_rad);
-
-  // eps - dpsi >= 0  (upper bound: psi[k] - psi_0 <= eps)
-  casadi::MX g_upper_expr = eps - dpsi;
-  // dpsi + eps >= 0  (lower bound: psi[k] - psi_0 >= -eps)
-  casadi::MX g_lower_expr = dpsi + eps;
-
-  casadi::MX g_all  = casadi::MX::vertcat({g_upper_expr, g_lower_expr});
-  const int32_t total = 2 * N;
-  casadi::DM g_lb_dm  = casadi::DM::zeros(total, 1);
-  casadi::DM g_ub_dm  = casadi::DM::ones(total, 1) * kInf;
-
-  auto names_ub = make_names("rule_17_stand_on_bound_upper", N);
-  auto names_lb = make_names("rule_17_stand_on_bound_lower", N);
-  names_ub.insert(names_ub.end(), names_lb.begin(), names_lb.end());
-  return {g_all, g_lb_dm, g_ub_dm, names_ub};
-}
 
 // ===========================================================================
 // compile_colregs_rules() — dispatch to per-rule helpers
 // ===========================================================================
 ConstraintCompiler::CompiledConstraints
 ConstraintCompiler::compile_colregs_rules(
-    const casadi::MX& psi_seq,
+    const casadi::MX& /*psi_seq*/,
     const casadi::MX& /*u_seq*/,
     const ConstraintInputs& inputs) const {
+  // NOTE: psi_seq and u_seq are UNUSED since P5 T4 (VR-04). All COLREGs
+  // constraints (direction/min_alt) are now provided by the FORMULATION
+  // layer (Slice D1); the compiler emits only audit markers. Parameters
+  // are retained for API compatibility with the IPOPT formulation caller.
   CompiledConstraints result{};
-  const double psi_0 = inputs.own_ship_psi_rad;
+  (void)inputs;
   for (const uint8_t rule : inputs.applicable_rules) {
     CompiledConstraints cc{};
     switch (rule) {
@@ -271,19 +200,26 @@ ConstraintCompiler::compile_colregs_rules(
       // rule is SAT-2 visible in the active-set log without duplicating the
       // formulation-layer constraints.
       // -------------------------------------------------------------------
-      case 13u: {
-        CompiledConstraints marker;
-        marker.g     = casadi::DM(0.0);
-        marker.g_lb  = casadi::DM::zeros(1, 1);
-        marker.g_ub  = casadi::DM(kInf);
-        marker.names = {"rule_13_overtake_side_via_formulation_direction"};
-        cc = marker;
-        break;
-      }
-      case 14u: cc = compile_rule14(psi_seq, psi_0); break;
-      case 15u: cc = compile_rule15(psi_seq, psi_0); break;
-      case 16u: cc = compile_rule16(psi_seq, psi_0); break;
-      case 17u: cc = compile_rule17(psi_seq, psi_0); break;
+	      case 13u:
+	      case 14u:
+	      case 15u:
+	      case 16u:
+	      case 17u: {
+	        // Rules 13-17: all COLREGs side + min_alt constraints are provided
+	        // by the FORMULATION layer (direction/min_alt rows, Slice D1).
+	        // The compiler emits only an audit marker so the rule is SAT-2
+	        // visible in the active-set log without duplicating constraints.
+	        // See the Rule13 comment above for the full rationale.
+	        const std::string rule_name = "rule_" + std::to_string(rule)
+	            + "_side_via_formulation_direction";
+	        CompiledConstraints marker;
+	        marker.g     = casadi::DM(0.0);
+	        marker.g_lb  = casadi::DM::zeros(1, 1);
+	        marker.g_ub  = casadi::DM(kInf);
+	        marker.names = {rule_name};
+	        cc = marker;
+	        break;
+	      }
       default:
         // Unknown rule: produce a trivially satisfied g=0 sentinel so it appears
         // in the active-set log (SAT-2 audit trail requires all requested rules visible).
@@ -305,15 +241,17 @@ ConstraintCompiler::compile_colregs_rules(
 // ===========================================================================
 // compile_cpa_distance() — CPA constraint: d_k^2 - cpa_hard^2 + sigma >= 0
 // Per (target, step). Target is constant-velocity from cog/sog.
-// Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
-// making the feasible region non-empty by construction regardless of geometry.
-// ===========================================================================
+  // Phase 3.1 (spec v2.3 §2.2): sigma (when non-empty) is added to every row,
+  // making the feasible region non-empty by construction regardless of geometry.
+  // Q4 (BL-15): sigma is only added to rows with k >= prefix_K. Prefix-stage
+  // rows (k < prefix_K) keep the hard-only form d_k^2 - cpa_hard^2.
 ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance(
     const casadi::MX& psi_seq,
     const casadi::MX& u_seq,
     const ConstraintInputs& inputs,
     double dt_s,
-    const casadi::MX& slack) const {
+    const casadi::MX& slack,
+    int32_t prefix_K) const {
   const int32_t N  = static_cast<int32_t>(psi_seq.size1());
   const int32_t Nt = static_cast<int32_t>(inputs.targets.size());
   if (N < 1 || Nt < 1) { return {}; }
@@ -351,7 +289,13 @@ ConstraintCompiler::CompiledConstraints ConstraintCompiler::compile_cpa_distance
       const casadi::MX dx = cx - casadi::DM(tx);
       const casadi::MX dy = cy - casadi::DM(ty);
       casadi::MX row = dx * dx + dy * dy - cpa_safe_sq;
-      if (slack_active) {
+      // Q4 (BL-15): σ only added to suffix rows (k >= prefix_K). Prefix-stage
+      // rows keep the legacy hard-only form — they are already bounds-softened
+      // by RowBoundConfig::apply_colreg_prefix_soften_, so σ in the expression
+      // is both unnecessary (bounds are [-inf,+inf]) and harmful (σ is a single
+      // scalar; a prefix violation absorbed by σ reduces slack headroom for
+      // suffix rows, creating a false-negative fail-open).
+      if (slack_active && k >= prefix_K) {
         row = row + slack;
       }
       g_rows.push_back(row);

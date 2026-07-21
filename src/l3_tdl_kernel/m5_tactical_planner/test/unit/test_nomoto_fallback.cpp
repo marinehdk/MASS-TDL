@@ -172,6 +172,47 @@ TEST(NomotoFallbackTest, CpaWithTarget) {
   }
 }
 
+// ===========================================================================
+// Test 4 — TsChangeDoesNotAffectZeroYawRatePath (P0 self-closure)
+// T_s 15->6.0 (P0 re-estimate) must NOT change the live-path output.
+// NomotoFallback integrate_branch seeds r=0 (hold-heading mode) and applies
+//   r_{k+1} = r_k - (dt/T)*r_k   (δ = 0).
+// With r_0 = 0 the yaw rate stays exactly 0 for ALL steps regardless of T,
+// so the heading is held constant and the trajectory is a pure translation
+//   x += u*cos(psi)*dt,  y += u*sin(psi)*dt.
+// This test proves the T value is behaviorally inert on the live path.
+// ===========================================================================
+TEST(NomotoFallbackTest, TsChangeDoesNotAffectZeroYawRatePath) {
+  const auto manifest = load_fixture();
+
+  // P0: confirm the fixture now carries the re-estimated T_s=6.0 (not 15.0).
+  ASSERT_NEAR(manifest.config().nomoto_T_s, 6.0, 1.0e-9)
+      << "fixture must carry P0 re-estimated T_s=6.0";
+
+  NomotoFallbackConfig cfg;
+  cfg.n_steps    = 12;
+  cfg.dt_s       = 5.0;
+  cfg.n_branches = 1;  // single straight branch at own-ship heading
+
+  NomotoFallback fallback(cfg, manifest);
+  const auto sol = fallback.solve(make_input_no_targets());
+
+  ASSERT_EQ(sol.trajectories.size(), 1u);
+  const auto& traj = sol.trajectories[0];
+  ASSERT_EQ(traj.size(), 13u);  // start + 12 steps
+
+  // Own ship: psi=0 (north), u=5 m/s. With r≡0 the heading never changes,
+  // so the path is pure translation along +x: x_k = u * k * dt.
+  // Final position after 12 steps: 5 * 12 * 5 = 300 m north, 0 m east.
+  for (std::size_t k = 0u; k < traj.size(); ++k) {
+    const double expected_x = 5.0 * static_cast<double>(k) * cfg.dt_s;
+    EXPECT_NEAR(traj[k].x(), expected_x, 1.0e-9)
+        << "Pure-translation x at step " << k << " must equal u*k*dt (T-independent)";
+    EXPECT_NEAR(traj[k].y(), 0.0, 1.0e-9)
+        << "Pure-translation y at step " << k << " must be 0 (heading held, T-independent)";
+  }
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
