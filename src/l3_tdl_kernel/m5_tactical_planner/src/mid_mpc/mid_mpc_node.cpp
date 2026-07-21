@@ -20,6 +20,7 @@
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_policy.hpp"
 #include "m5_tactical_planner/avoidance_route_hash.hpp"
+#include "m5_tactical_planner/bc_mpc/envelope_computer.hpp"
 #include "m5_tactical_planner/common/l0_guards.hpp"
 #include "m5_tactical_planner/common/sha256.hpp"
 #include "m5_tactical_planner/common/types.hpp"
@@ -1062,16 +1063,64 @@ void MidMpcNode::on_solve_cycle_()
   // its directional envelope), speed_gap_infeasible when the speed gap exceeds
   // N·decel_max·dt. Both are architectural infeasibilities — holding a stale NLP
   // corridor would be wrong, so dispatch immediately.
+  //
+  // L5-T3: Last-Safe-Maneuver Envelope check (independent reachability gate).
+  // The envelope is computed from own-ship state + manoeuvring limits WITHOUT
+  // depending on solver convergence. If any target's position projects inside
+  // the conservative non-avoidable envelope, the solver cannot guarantee a safe
+  // manoeuvre within the ship's physical limits — escalate to BC-MPC.
   constexpr int64_t kBcMpcTakeoverThreshold = 3;
-  const bool bc_mpc_should_take_over = mass_l3::m5::compute_bc_mpc_take_over(
+  const bool bc_mpc_takeover_v22 = mass_l3::m5::compute_bc_mpc_take_over(
       solver_.consecutive_failures(), kBcMpcTakeoverThreshold,
       solver_.last_minalt_box_infeasible(), input.speed_gap_infeasible);  // v2.2 §13.1 OR
+
+  // L5-T3: independent reachability envelope gate.
+  // Runs even when the NLP solver has NOT yet failed (consecutive=0) — if the
+  // geometry is unreachable by physics, the solver will inevitably fail.
+  bool bc_mpc_envelope_takeover = false;
+  {
+    const double envelope_horizon_s =
+        static_cast<double>(formulation_.config().n_horizon) * formulation_.config().dt_s;
+    mass_l3::m5::bc_mpc::EnvelopeComputer::Config env_cfg;
+    // [TBD-HAZID] Constants match handoff §5.4.b defaults.
+    env_cfg.sigma_pos_m        = 50.0;
+    env_cfg.rudder_slew_deg_s  = 2.5;
+    env_cfg.takeover_latency_s = 2.0;
+    const mass_l3::m5::bc_mpc::EnvelopeComputer envelope_comp(env_cfg);
+
+    const auto envelope = envelope_comp.compute_envelope(
+        input.own_ship, input.rot_max_rad_s, input.decel_max_mps2,
+        formulation_.config().dt_s, envelope_horizon_s);
+
+    if (envelope.empty) {
+      // Empty envelope: no feasible manoeuvre exists at all — immediate escalation.
+      bc_mpc_envelope_takeover = true;
+      spdlog::warn("[M5][MidMPC] L5-T3 envelope EMPTY — no feasible manoeuvre exists "
+                   "(horizon={:.1f}s, rot_max={:.3f} rad/s, decel={:.3f} m/s^2)",
+                   envelope_horizon_s, input.rot_max_rad_s, input.decel_max_mps2);
+    } else {
+      // Check each target against the envelope.
+      for (const auto& tgt : input.constraints.targets) {
+        if (envelope_comp.is_target_inside_envelope(
+                envelope, tgt, input.own_ship, env_cfg.sigma_pos_m)) {
+          bc_mpc_envelope_takeover = true;
+          spdlog::warn("[M5][MidMPC] L5-T3 envelope takeover: target {} inside "
+                       "non-avoidable envelope (CPA={:.1f}m, TCPA={:.1f}s)",
+                       tgt.id, tgt.cpa_m, tgt.tcpa_s);
+          break;  // One target inside is sufficient.
+        }
+      }
+    }
+  }
+
+  const bool bc_mpc_should_take_over = bc_mpc_takeover_v22 || bc_mpc_envelope_takeover;
   if (bc_mpc_should_take_over) {
     if (!committed_route_manager_.bc_mpc_takeover_requested()) {
-      spdlog::warn("[M5][MidMPC] BC-MPC take-over signaled (consecutive={}, box_infeas={}, speed_infeas={})",
+      spdlog::warn("[M5][MidMPC] BC-MPC take-over signaled (consecutive={}, box_infeas={}, speed_infeas={}, envelope={})",
                    solver_.consecutive_failures(),
                    solver_.last_minalt_box_infeasible(),
-                   input.speed_gap_infeasible);
+                   input.speed_gap_infeasible,
+                   bc_mpc_envelope_takeover);
     }
     committed_route_manager_.mark_bc_mpc_takeover();
   }

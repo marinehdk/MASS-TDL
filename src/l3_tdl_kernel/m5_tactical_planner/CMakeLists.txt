@@ -173,6 +173,7 @@ set(M5_SHARED_SOURCES
   src/bc_mpc/bc_mpc_collision_detector.cpp
   src/bc_mpc/bc_mpc_solver.cpp
   src/bc_mpc/bc_mpc_override_generator.cpp
+  src/bc_mpc/envelope_computer.cpp
   # --- mid_mpc/ (CasADi-free) ---
   src/mid_mpc/nomoto_fallback.cpp
   src/mid_mpc/degraded_candidate_adapter.cpp
@@ -737,6 +738,12 @@ if(BUILD_TESTING)
   m5_add_gtest(test_bc_mpc_node_handover
     test/unit/test_bc_mpc_node_handover.cpp
     spdlog::spdlog Eigen3::Eigen yaml-cpp::yaml-cpp
+  )
+
+  # ── L5-T3: Last-Safe-Maneuver Envelope Computer tests ──────────────────────
+  m5_add_gtest(test_envelope_computer
+    test/unit/test_envelope_computer.cpp
+    Eigen3::Eigen
   )
 
   # ── DEMO-2 P0: Nomoto 1st-order fallback solver (CasADi-free) ────────────────
