@@ -762,6 +762,18 @@ void MidMpcAcadosSolver::warm_up_capsule_() {
                  "back to IPOPT. (Known acatos v0.4.4 cold-start effect.)",
                  kWarmUpSolves, static_cast<int>(last_warm_status));
   }
+
+  // FB-3 (2026-07-21): clear the warm-up's cached trajectory so Block 1c (P5 T2
+  // transition cost) does NOT treat the warm-up's no-target straight-line
+  // solution as a "previous cycle" for the first real solve. The warm-up
+  // trajectory has u_prev ≈ seed.u = 5.0 m/s, making du = u - u_prev ≈ 0 at
+  // the seed. Combined with w_trans_active=1 (cached solution exists), the
+  // ca.fabs(du) term in J_transition produces a Dirac-delta Hessian at du=0,
+  // giving NaN in CasADi's AD → QP failure → SQP stalls at MAX_ITER. Clearing
+  // the cache forces the first real solve to use w_trans_active=0, sidestepping
+  // the kink. Subsequent cycles (with real scenario trajectories) re-enable
+  // w_trans_active=1 and provide meaningful anti-chattering.
+  impl_->last_converged_solution_ = MidMpcSolution{};
 }
 
 MidMpcAcadosSolver::~MidMpcAcadosSolver() = default;
@@ -1374,49 +1386,51 @@ MidMpcSolution MidMpcAcadosSolver::solve(const MidMpcInput& input,
     }
 	  }
 
-	  // ---- 1c. P5 T2: fill per-stage psi_prev/u_prev for transition cost. ----
-	  // Shift the last converged solution by one stage: stage k's psi_prev uses
-	  // the converged trajectory's stage k (shifted: stage k of current cycle
-	  // should compare against stage k of the PREVIOUS cycle, not k+1, because
-	  // both cycles start from the same own-ship position and the shift is in
-	  // the SEED, not in the transition comparison).
-	  //
-	  // When no cached solution exists (first cycle / cold start), psi_prev and
-	  // u_prev default to 0.0 which produces a small J_transition but does not
-	  // dominate the total cost. This is acceptable: the first cycle has no
-	  // prior solution to compare against.
-	  if (!impl_->last_converged_solution_.trajectory.empty() &&
-	      impl_->last_converged_solution_.trajectory.size() ==
-	          static_cast<std::size_t>(kAcadosN)) {
+		  // ---- 1c. P5 T2: fill per-stage psi_prev/u_prev for transition cost. ----
+		  // Shift the last converged solution by one stage: stage k's psi_prev uses
+		  // the converged trajectory's stage k (shifted: stage k of current cycle
+		  // should compare against stage k of the PREVIOUS cycle, not k+1, because
+		  // both cycles start from the same own-ship position and the shift is in
+		  // the SEED, not in the transition comparison).
+		  //
+		  // FB-3 (2026-07-21): the warm-up now clears last_converged_solution_ after
+		  // priming the capsule, so the first real solve always takes the ELSE branch
+		  // (w_trans_active=0). This prevents the warm-up artefact (u_prev=seed.u
+		  // → du=0 → ca.fabs kink → NaN Hessian) from corrupting the first solve's
+		  // SQP convergence. Real subsequent cycles re-enter the IF branch and
+		  // provide meaningful anti-chattering via w_trans_active=1.
+		  if (!impl_->last_converged_solution_.trajectory.empty() &&
+		      impl_->last_converged_solution_.trajectory.size() ==
+		          static_cast<std::size_t>(kAcadosN)) {
+		    for (int k = 0; k <= kAcadosN; ++k) {
+		      const std::size_t kk = static_cast<std::size_t>(k);
+		      if (k < kAcadosN) {
+		        // Stage k compares against converged trajectory[k] (same index).
+		        const auto& tp = impl_->last_converged_solution_.trajectory[kk];
+	        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
+	        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
+	      } else {
+	        // Terminal stage N: use the last trajectory point.
+	        const auto& tp = impl_->last_converged_solution_.trajectory[
+	            static_cast<std::size_t>(kAcadosN - 1)];
+	        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
+	        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
+	      }
+	      // Transition cost active: cached solution exists.
+	      ps[kk][kAcadosPerStageWTransActiveOff] = 1.0;
+	    }
+	  } else {
+	    // No cached solution (first cycle / cold start): use the seed_traj psi/u as
+	    // psi_prev/u_prev so J_transition ≈ 0, with w_trans_active=0 to fully
+	    // disable the transition cost. This prevents penalizing the first solve
+	    // for deviating from the seed trajectory to avoid obstacles.
 	    for (int k = 0; k <= kAcadosN; ++k) {
 	      const std::size_t kk = static_cast<std::size_t>(k);
-	      if (k < kAcadosN) {
-	        // Stage k compares against converged trajectory[k] (same index).
-	        const auto& tp = impl_->last_converged_solution_.trajectory[kk];
-        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
-        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
-      } else {
-        // Terminal stage N: use the last trajectory point.
-        const auto& tp = impl_->last_converged_solution_.trajectory[
-            static_cast<std::size_t>(kAcadosN - 1)];
-        ps[kk][kAcadosPerStagePsiPrevOff] = tp.psi_rad;
-        ps[kk][kAcadosPerStageUPrevOff]   = tp.u_mps;
-      }
-      // Transition cost active: cached solution exists.
-      ps[kk][kAcadosPerStageWTransActiveOff] = 1.0;
-    }
-  } else {
-    // No cached solution (first cycle / cold start): use the seed_traj psi/u as
-    // psi_prev/u_prev so J_transition ≈ 0, with w_trans_active=0 to fully
-    // disable the transition cost. This prevents penalizing the first solve
-    // for deviating from the seed trajectory to avoid obstacles.
-    for (int k = 0; k <= kAcadosN; ++k) {
-      const std::size_t kk = static_cast<std::size_t>(k);
-      ps[kk][kAcadosPerStagePsiPrevOff] = seed_traj[kk].psi;
-      ps[kk][kAcadosPerStageUPrevOff]   = seed_traj[kk].u;
-      ps[kk][kAcadosPerStageWTransActiveOff] = 0.0;
-    }
-  }
+	      ps[kk][kAcadosPerStagePsiPrevOff] = seed_traj[kk].psi;
+	      ps[kk][kAcadosPerStageUPrevOff]   = seed_traj[kk].u;
+	      ps[kk][kAcadosPerStageWTransActiveOff] = 0.0;
+	    }
+	  }
 
   // ---- 2. write per-stage concatenated params (146 per stage). ----
   // Concatenate global (106) + per-stage (40) = 146 (codegen's NP). The single-
