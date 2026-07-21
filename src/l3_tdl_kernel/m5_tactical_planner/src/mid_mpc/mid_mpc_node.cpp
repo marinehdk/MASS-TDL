@@ -2418,6 +2418,7 @@ void MidMpcNode::reset_cross_run_state() {
   last_avoidance_plan_publish_time_.reset();
   last_constraint_signature_ = 0;  // Fix #8: force graph rebuild on next scenario
   has_override_cmd_ = false;       // L5: reset BC-MPC override cache on scenario change
+  fallback_manager_.reset();        // P6: clear FinalDegrade evidence on new scenario
 }
 
 // P6: publish SafetyConcernEvent with CONCERN_BC_FINAL_DEGRADE
@@ -2430,8 +2431,60 @@ void MidMpcNode::publish_safety_concern_final_degrade_()
   evt.suggested_action = "MRM";
   evt.anchor_hdg = 0.0F;
   pub_safety_concern_->publish(evt);
-  spdlog::critical("[M5][MidMPC] FINAL_DEGRADE → SafetyConcernEvent published "
+  spdlog::critical("[M5][MidMPC] FINAL_DEGRADE -> SafetyConcernEvent published "
                    "(BC failed + Mid unrecovered)");
+
+  // P6: record FinalDegrade evidence in FallbackManager (spec SS5.4)
+  // and emit ASDR audit record so the trigger conditions are recoverable
+  // from /l3/asdr/record alone.
+  fallback_manager_.record_final_degrade(
+      committed_route_manager_.bc_override_no_improve_count(),
+      committed_route_manager_.mid_unrecovered_count(),
+      committed_route_manager_.bc_worst_case_cpa_m(),
+      committed_route_manager_.mid_last_converged(),
+      committed_route_manager_.current().safety_concern_event,
+      lifecycle_state_name(committed_route_manager_.current().state),
+      "MRM",
+      static_cast<double>(evt.stamp.sec) + static_cast<double>(evt.stamp.nanosec) * 1.0e-9);
+
+  emit_final_degrade_asdr_(evt.stamp);
+}
+
+// P6: emit ASDR audit record when FinalDegrade is entered so the
+// MRM trigger evidence is recoverable from /l3/asdr/record alone.
+// Captures both Condition A (BC override_no_improve_count) and
+// Condition B (Mid unrecovered count) at the moment of transition.
+void MidMpcNode::emit_final_degrade_asdr_(rclcpp::Time now)
+{
+  const auto& evidence = fallback_manager_.evidence();
+
+  l3_msgs::msg::ASDRRecord record;
+  record.stamp = now;
+  record.source_module = "M5_Tactical_Planner";
+  record.decision_type = "final_degrade_mrm_suggested";
+  record.decision_json =
+      std::string("{\"event\":\"FinalDegrade\",")
+      + "\"safety_concern_event\":\"" + evidence.safety_concern_event + "\","
+      + "\"lifecycle_state\":\"" + evidence.lifecycle_state + "\","
+      + "\"suggested_action\":\"" + evidence.suggested_action + "\","
+      + "\"condition_a_bc_override_no_improve\":"
+          + std::to_string(evidence.bc_override_no_improve_count) + ","
+      + "\"condition_b_mid_unrecovered\":"
+          + std::to_string(evidence.mid_unrecovered_count) + ","
+      + "\"bc_worst_case_cpa_m\":" + std::to_string(static_cast<int>(evidence.bc_worst_case_cpa_m))
+      + "}";
+  record.confidence = 1.0F;
+  record.rationale = std::string{"FinalDegrade entered: BC failed (override_no_improve="}
+      + std::to_string(evidence.bc_override_no_improve_count)
+      + ") + Mid unrecovered (count="
+      + std::to_string(evidence.mid_unrecovered_count) + ")";
+  const auto digest = mass_l3::m5::common::sha256(record.decision_json);
+  record.signature.assign(digest.begin(), digest.end());
+  pub_asdr_record_->publish(record);
+
+  spdlog::info("[M5][MidMPC] FinalDegrade ASDR emitted: decision_type=final_degrade_mrm_suggested "
+               "bc_no_improve={} mid_unrecovered={}",
+               evidence.bc_override_no_improve_count, evidence.mid_unrecovered_count);
 }
 
 }  // namespace mass_l3::m5::mid_mpc

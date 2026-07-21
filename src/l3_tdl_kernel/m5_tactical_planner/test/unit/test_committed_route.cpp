@@ -8,9 +8,11 @@
 #include <vector>
 
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
+#include "m5_tactical_planner/committed_route/fallback_manager.hpp"
 
 using mass_l3::m5::committed_route::CommittedAvoidanceRoute;
 using mass_l3::m5::committed_route::CommittedRouteCandidate;
+using mass_l3::m5::committed_route::FallbackManager;
 using mass_l3::m5::committed_route::GeoWP;
 using mass_l3::m5::committed_route::LifecycleState;
 using mass_l3::m5::committed_route::lifecycle_state_name;
@@ -1113,4 +1115,96 @@ TEST(BcToL4Contract, BcMpcFollowHandoverToCommitted)
       << "L5 BC->L4 contract: HandoverNeutral + dual-condition -> Committed";
   EXPECT_FALSE(manager.bc_mpc_takeover_requested())
       << "takeover flag cleared on successful handover";
+}
+
+// ===========================================================================
+// P6: FallbackManager (spec SS5.4) — FinalDegrade evidence capture tests
+// ===========================================================================
+
+TEST(FallbackManagerP6, InitiallyNotTriggered) {
+  FallbackManager fm;
+  EXPECT_FALSE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_FALSE(ev.triggered);
+}
+
+TEST(FallbackManagerP6, RecordFinalDegradeSetsEvidence) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      5U, 3U, 100.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 42.0);
+
+  EXPECT_TRUE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_TRUE(ev.triggered);
+  EXPECT_EQ(ev.bc_override_no_improve_count, 5U);
+  EXPECT_EQ(ev.mid_unrecovered_count, 3U);
+  EXPECT_DOUBLE_EQ(ev.bc_worst_case_cpa_m, 100.0);
+  EXPECT_FALSE(ev.mid_last_converged);
+  EXPECT_EQ(ev.safety_concern_event, "bc_final_degrade");
+  EXPECT_EQ(ev.lifecycle_state, "FinalDegrade");
+  EXPECT_EQ(ev.suggested_action, "MRM");
+  EXPECT_DOUBLE_EQ(ev.timestamp_s, 42.0);
+}
+
+TEST(FallbackManagerP6, ResetClearsEvidence) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      5U, 3U, 100.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 42.0);
+  ASSERT_TRUE(fm.mrm_suggested());
+
+  fm.reset();
+  EXPECT_FALSE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_FALSE(ev.triggered);
+  EXPECT_EQ(ev.bc_override_no_improve_count, 0U);
+}
+
+TEST(FallbackManagerP6, MultipleRecordOverwrites) {
+  FallbackManager fm;
+  fm.record_final_degrade(
+      3U, 1U, 500.0, true,
+      "early_warning", "DegradedHold", "NONE", 10.0);
+  fm.record_final_degrade(
+      6U, 4U, 80.0, false,
+      "bc_final_degrade", "FinalDegrade", "MRM", 20.0);
+
+  EXPECT_TRUE(fm.mrm_suggested());
+  const auto& ev = fm.evidence();
+  EXPECT_EQ(ev.bc_override_no_improve_count, 6U);
+  EXPECT_EQ(ev.mid_unrecovered_count, 4U);
+  EXPECT_DOUBLE_EQ(ev.bc_worst_case_cpa_m, 80.0);
+  EXPECT_DOUBLE_EQ(ev.timestamp_s, 20.0);
+}
+
+// ===========================================================================
+// P6: CommittedAvoidanceRoute accessors for FinalDegrade evidence
+// ===========================================================================
+
+TEST(CommittedRouteP6, AccessorsReturnTriggerCounters) {
+  CommittedAvoidanceRoute manager;
+  ASSERT_TRUE(manager.try_revise(candidate("plan-a", route_a(), 2U, 20.0), 0.0));
+  manager.mark_bc_mpc_takeover();
+  for (int i = 0; i < 3; ++i) {
+    static_cast<void>(manager.try_revise(
+        candidate("fail-" + std::to_string(i), route_b_with_same_prefix(), 2U, 30.0, false),
+        static_cast<double>(i + 1)));
+  }
+  ASSERT_EQ(manager.current().state, LifecycleState::BcMpcFollow);
+
+  // Before BC health is notified, counters should be at defaults
+  EXPECT_EQ(manager.bc_override_no_improve_count(), 0U);
+  EXPECT_EQ(manager.mid_unrecovered_count(), 0U);
+  EXPECT_TRUE(manager.mid_last_converged());
+
+  // Notify BC health + 3 cycles of Mid-not-converged
+  manager.notify_bc_mpc_health(7U, 200.0, true);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+  manager.notify_handover_inputs(false, 100.0);
+
+  EXPECT_EQ(manager.bc_override_no_improve_count(), 7U);
+  EXPECT_GE(manager.mid_unrecovered_count(), 3U);
+  EXPECT_FALSE(manager.mid_last_converged());
 }

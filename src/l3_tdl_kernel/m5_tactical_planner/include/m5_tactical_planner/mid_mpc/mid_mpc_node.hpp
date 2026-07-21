@@ -28,6 +28,7 @@
 
 #include "m5_tactical_planner/common/types.hpp"
 #include "m5_tactical_planner/committed_route/committed_route.hpp"
+#include "m5_tactical_planner/committed_route/fallback_manager.hpp"
 #include "m5_tactical_planner/avoidance_waypoint_gen.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_nlp_formulation.hpp"
 #include "m5_tactical_planner/mid_mpc/mid_mpc_solver.hpp"
@@ -86,6 +87,9 @@ class MidMpcNode : public rclcpp::Node {
   std::optional<MidMpcSolution> last_solution_;
   mass_l3::risk::RankingState risk_ranking_state_;
   mass_l3::m5::committed_route::CommittedAvoidanceRoute committed_route_manager_;
+  // P6: FallbackManager tracks FinalDegrade -> MRM state transitions and
+  // holds evidence for ASDR audit records (spec SS5.4).
+  mass_l3::m5::committed_route::FallbackManager fallback_manager_;
 
   l3_msgs::msg::WorldState::SharedPtr                        world_state_;
   l3_msgs::msg::BehaviorPlan::SharedPtr                      behavior_plan_;
@@ -203,6 +207,10 @@ class MidMpcNode : public rclcpp::Node {
       const std::string& reason,
       const std::string& plan_id,
       const std::string& plan_status);
+
+  // P6: emit ASDR record when FinalDegrade is entered so the MRM trigger
+  // evidence is recoverable from /l3/asdr/record alone (closes spec §5.4 gap).
+  void emit_final_degrade_asdr_(rclcpp::Time now);
 
   // Publish the committed avoidance route on /l3/m5/avoidance_plan (the only
   // execution-truth topic M5 owns; the legacy /l3/m5/avoidance_waypoints shadow

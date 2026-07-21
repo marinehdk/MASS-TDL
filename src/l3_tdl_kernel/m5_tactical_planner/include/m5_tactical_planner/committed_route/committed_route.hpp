@@ -134,6 +134,20 @@ class CommittedAvoidanceRoute {
   [[nodiscard]] bool should_enter_final_degrade() const;
   // P6: enter FinalDegrade state — irreversible, M5 silent, M7 MRM
   void enter_final_degrade();
+  // P6: accessors for FinalDegrade trigger evidence (Condition A + Condition B counters).
+  // Used by mid_mpc_node to build ASDR audit records when FinalDegrade is entered.
+  [[nodiscard]] std::uint32_t bc_override_no_improve_count() const noexcept {
+    return bc_override_no_improve_count_;
+  }
+  [[nodiscard]] std::uint32_t mid_unrecovered_count() const noexcept {
+    return mid_unrecovered_count_;
+  }
+  [[nodiscard]] double bc_worst_case_cpa_m() const noexcept {
+    return bc_last_worst_case_cpa_m_;
+  }
+  [[nodiscard]] bool mid_last_converged() const noexcept {
+    return last_mid_converged_;
+  }
   // Phase 2.2 (R1, spec v2.3 §13.5): per-cycle solver-failure notification so
   // should_enter_degraded_hold can escalate on the SOLVER counter even when
   // the optimized try_revise path is never reached (plan.status=DEGRADED →

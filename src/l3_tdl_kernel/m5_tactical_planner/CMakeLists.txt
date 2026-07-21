@@ -153,6 +153,7 @@ find_package(Boost REQUIRED COMPONENTS headers)
 set(M5_SHARED_SOURCES
   src/avoidance_route_hash.cpp
   src/committed_route/committed_route.cpp
+  src/committed_route/fallback_manager.cpp
   src/gnc_preflight.cpp
   # --- common/ ---
   src/common/error.cpp
