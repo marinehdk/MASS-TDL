@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import sqlite3
@@ -117,6 +118,48 @@ def _app_for(repo: Path, tmp_path: Path, monkeypatch) -> FastAPI:
     return app
 
 
+def _empty_session_page() -> dict:
+    return {
+        "sessions": [],
+        "total": 0,
+        "filtered_total": 0,
+        "page": 1,
+        "page_size": 20,
+        "total_pages": 1,
+        "facets": {
+            "result": [],
+            "scenarioCount": [],
+            "mode": [],
+            "scenario": [],
+            "source": [],
+            "worktree": [],
+        },
+    }
+
+
+async def _wait_for_rescan_terminal(client: AsyncClient) -> dict:
+    for _ in range(100):
+        snapshot = (await client.get("/api/v1/evidence-library/rescan/status")).json()
+        if snapshot["state"] in {"completed", "failed"}:
+            return snapshot
+        await asyncio.sleep(0.01)
+    raise AssertionError("rescan did not reach a terminal state")
+
+
+async def _rescan(client: AsyncClient, *, force: bool):
+    started = await client.post(
+        "/api/v1/evidence-library/rescan",
+        json={"force": force},
+    )
+    assert started.status_code == 202
+    for _ in range(100):
+        status = await client.get("/api/v1/evidence-library/rescan/status")
+        if status.json()["state"] in {"completed", "failed"}:
+            return status
+        await asyncio.sleep(0.01)
+    raise AssertionError("rescan did not reach a terminal state")
+
+
 def _seed_all_evidence_tables(repo: Path, evidence_id: str, session: dict) -> Path:
     database_path = load_effective_config(repo_root=repo).database_path
     session_id = session["session_id"]
@@ -189,12 +232,169 @@ async def test_direct_session_rescan_is_stable_when_called_twice(tmp_path, monke
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
-        second = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        first = await _rescan(client, force=True)
+        second = await _rescan(client, force=True)
         assert first.status_code == 200
         assert second.status_code == 200
         listed = await client.get("/api/v1/evidence-library/sessions")
         assert len(listed.json()["sessions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_sessions_route_forwards_complete_query(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_list_sessions(query, **_):
+        captured["query"] = query
+        return _empty_session_page()
+
+    monkeypatch.setattr(routes, "list_sessions", fake_list_sessions)
+    app = _app_for(tmp_path / "repo", tmp_path, monkeypatch)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(
+            "/api/v1/evidence-library/sessions"
+            "?page=2&page_size=50&search=rule15&sort_key=scenarioCount"
+            "&sort_direction=asc&result=failed&scenario_count=1&mode=avoidance"
+            "&scenario=colreg-rule15-cs&source=cli&worktree=tree-b"
+        )
+
+    assert response.status_code == 200
+    query = captured["query"]
+    assert query.page == 2
+    assert query.page_size == 50
+    assert query.search == "rule15"
+    assert query.sort_key == "scenarioCount"
+    assert query.sort_direction == "asc"
+    assert query.result == "failed"
+    assert query.scenario_count == 1
+    assert query.mode == "avoidance"
+    assert query.scenario == "colreg-rule15-cs"
+    assert query.source == "cli"
+    assert query.worktree == "tree-b"
+    assert response.json() == _empty_session_page()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "page=0",
+        "page_size=200",
+        "sort_key=bad",
+        "sort_direction=bad",
+        "result=bad",
+        "scenario_count=-1",
+        "mode=bad",
+        "limit=500",
+    ],
+)
+async def test_sessions_route_rejects_invalid_and_legacy_query(tmp_path, monkeypatch, query):
+    monkeypatch.setattr(routes, "list_sessions", lambda **_: _empty_session_page())
+    app = _app_for(tmp_path / "repo", tmp_path, monkeypatch)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/v1/evidence-library/sessions?{query}")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_rescan_starts_single_background_job_and_keeps_routes_responsive(
+    tmp_path, monkeypatch
+):
+    repo = tmp_path / "repo"
+    app = _app_for(repo, tmp_path, monkeypatch)
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+    calls = 0
+
+    def blocked_rescan(*, repo_root, force, progress_callback):
+        nonlocal calls
+        calls += 1
+        progress_callback(total=2)
+        worker_started.set()
+        release_worker.wait(timeout=2)
+        progress_callback(processed=1, ingested=1)
+        return {
+            "processed": 2,
+            "ingested": 1,
+            "skipped": 1,
+            "pruned": 0,
+            "errors": [],
+            "cleanup_pending": [],
+        }
+
+    monkeypatch.setattr(
+        routes,
+        "_rescan_manager",
+        service.EvidenceRescanManager(runner=blocked_rescan),
+    )
+    monkeypatch.setattr(routes, "list_sessions", lambda *_args, **_kwargs: _empty_session_page())
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await asyncio.wait_for(
+            client.post("/api/v1/evidence-library/rescan", json={"force": False}),
+            timeout=0.25,
+        )
+        assert worker_started.wait(timeout=0.25)
+        second = await client.post(
+            "/api/v1/evidence-library/rescan", json={"force": True}
+        )
+
+        assert first.status_code == 202
+        assert second.status_code == 202
+        assert first.json()["job_id"] == second.json()["job_id"]
+        assert first.json()["force"] is False
+        assert calls == 1
+
+        status = await client.get("/api/v1/evidence-library/rescan/status")
+        health_response, sessions_response = await asyncio.gather(
+            client.get("/health"),
+            client.get("/api/v1/evidence-library/sessions"),
+        )
+        assert status.json()["state"] == "running"
+        assert status.json()["total"] == 2
+        assert health_response.status_code == 200
+        assert sessions_response.status_code == 200
+
+        release_worker.set()
+        terminal = await _wait_for_rescan_terminal(client)
+
+    assert terminal["state"] == "completed"
+    assert terminal["processed"] == 2
+    assert terminal["ingested"] == 1
+    assert terminal["skipped"] == 1
+    assert terminal["finished_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_rescan_worker_exception_becomes_terminal_failed_snapshot(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    app = _app_for(repo, tmp_path, monkeypatch)
+
+    def failing_rescan(*, repo_root, force, progress_callback):
+        raise RuntimeError("scan exploded")
+
+    monkeypatch.setattr(
+        routes,
+        "_rescan_manager",
+        service.EvidenceRescanManager(runner=failing_rescan),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        started = await client.post(
+            "/api/v1/evidence-library/rescan", json={"force": True}
+        )
+        terminal = await _wait_for_rescan_terminal(client)
+
+    assert started.status_code == 202
+    assert terminal["state"] == "failed"
+    assert terminal["force"] is True
+    assert terminal["errors"] == [{"path": "rescan", "error": "scan exploded"}]
+    assert terminal["finished_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -208,9 +408,9 @@ async def test_rescan_prunes_indexed_session_when_manifest_is_removed(tmp_path, 
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         (session_dir / "manifest.json").unlink()
-        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        response = await _rescan(client, force=True)
         listed = await client.get("/api/v1/evidence-library/sessions")
 
     assert response.status_code == 200
@@ -226,7 +426,7 @@ async def test_list_hides_missing_manifest_before_rescan_without_pruning_index(t
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         (session_dir / "manifest.json").unlink()
         listed = await client.get("/api/v1/evidence-library/sessions")
@@ -246,7 +446,7 @@ async def test_list_hides_absent_and_non_directory_sessions_before_rescan(
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         session_dir.rename(tmp_path / "moved-session")
         if replacement == "file":
@@ -265,7 +465,7 @@ async def test_rescan_prunes_session_with_symlinked_manifest(tmp_path, monkeypat
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         manifest_path = session_dir / "manifest.json"
         outside_manifest = tmp_path / "outside-manifest.json"
@@ -273,7 +473,7 @@ async def test_rescan_prunes_session_with_symlinked_manifest(tmp_path, monkeypat
         manifest_path.symlink_to(outside_manifest)
 
         stale_list = await client.get("/api/v1/evidence-library/sessions")
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
 
     assert stale_list.json()["sessions"] == []
     assert rescan.status_code == 200
@@ -288,14 +488,14 @@ async def test_rescan_prunes_symlinked_session_directory(tmp_path, monkeypatch):
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         outside_session = tmp_path / "outside-session"
         session_dir.rename(outside_session)
         session_dir.symlink_to(outside_session, target_is_directory=True)
 
         stale_list = await client.get("/api/v1/evidence-library/sessions")
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
 
     assert stale_list.json()["sessions"] == []
     assert rescan.status_code == 200
@@ -311,14 +511,14 @@ async def test_rescan_prunes_session_with_symlinked_path_component(tmp_path, mon
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         outside_runs = tmp_path / "outside-runs"
         (repo / "runs").rename(outside_runs)
         (repo / "runs").symlink_to(outside_runs, target_is_directory=True)
 
         stale_list = await client.get("/api/v1/evidence-library/sessions")
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
 
     assert stale_list.json()["sessions"] == []
     assert rescan.status_code == 200
@@ -338,9 +538,9 @@ async def test_rescan_prunes_indexed_session_when_session_directory_is_renamed(t
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        first = await _rescan(client, force=True)
         session_dir.rename(tmp_path / "renamed-session")
-        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        response = await _rescan(client, force=True)
         listed = await client.get("/api/v1/evidence-library/sessions")
 
     assert first.status_code == 200
@@ -362,7 +562,7 @@ async def test_rescan_prune_removes_evidence_from_every_table(tmp_path, monkeypa
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        first = await _rescan(client, force=True)
         assert first.status_code == 200
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
@@ -397,7 +597,7 @@ async def test_rescan_prune_removes_evidence_from_every_table(tmp_path, monkeypa
 
     session_dir.rename(tmp_path / "renamed-session")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        response = await _rescan(client, force=True)
         listed = await client.get("/api/v1/evidence-library/sessions")
 
     assert response.status_code == 200
@@ -439,9 +639,9 @@ async def test_rescan_retains_physical_session_under_disabled_root(tmp_path, mon
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        first = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        first = await _rescan(client, force=True)
         write_root_config(False)
-        response = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        response = await _rescan(client, force=True)
         listed = await client.get("/api/v1/evidence-library/sessions")
 
     assert session_dir.is_dir()
@@ -470,7 +670,7 @@ async def test_rescan_skips_symlink_sessions_when_root_disallows_symlinks(tmp_pa
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
         assert rescan.status_code == 200
         listed = await client.get("/api/v1/evidence-library/sessions")
         assert listed.json()["sessions"] == []
@@ -488,7 +688,7 @@ async def test_rescan_sessions_replay_and_decision_frame(tmp_path, monkeypatch):
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
         assert rescan.status_code == 200
         assert rescan.json()["ingested"] == 1
 
@@ -539,7 +739,7 @@ async def test_rescan_supports_unified_run_trace_folder(tmp_path, monkeypatch):
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
         assert rescan.status_code == 200
         assert rescan.json()["ingested"] == 1
 
@@ -565,7 +765,7 @@ async def test_list_exposes_server_derived_deletion_targets(tmp_path, monkeypatc
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
 
     by_id = {session["session_id"]: session for session in sessions}
@@ -596,7 +796,7 @@ async def test_list_disables_and_delete_rejects_untrusted_target(tmp_path, monke
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         response = await client.delete("/api/v1/evidence-library/sessions/" + session["evidence_id"])
 
@@ -614,7 +814,7 @@ async def test_delete_unified_session_removes_run_dir_and_all_index_rows(tmp_pat
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
         database_path = _seed_all_evidence_tables(repo, evidence_id, session)
@@ -640,7 +840,7 @@ async def test_delete_legacy_session_removes_only_indexed_session_directory(tmp_
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
 
@@ -659,7 +859,7 @@ async def test_delete_missing_session_target_removes_index_rows_only(tmp_path, m
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         shutil.rmtree(trace_dir.parent)
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
@@ -682,7 +882,7 @@ async def test_delete_missing_legacy_root_removes_index_rows_only(tmp_path, monk
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
         database_path = _seed_all_evidence_tables(repo, evidence_id, session)
@@ -718,7 +918,7 @@ async def test_delete_untrusted_root_returns_409_without_deletion(tmp_path, monk
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
         listed = await client.get("/api/v1/evidence-library/sessions")
@@ -763,7 +963,7 @@ async def test_delete_disabled_root_returns_409_without_deletion(tmp_path, monke
     write_config(True)
     app = _app_for(repo, tmp_path, monkeypatch)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         write_config(False)
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
@@ -781,7 +981,7 @@ async def test_delete_rejects_final_session_symlink(tmp_path, monkeypatch):
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         outside_trace = tmp_path / "outside-trace"
         trace_dir.rename(outside_trace)
@@ -803,7 +1003,7 @@ async def test_delete_rejects_symlink_in_repo_runs_ancestor(tmp_path, monkeypatc
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
         assert rescan.json()["ingested"] == 1
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         outside_runs = tmp_path / "outside-runs"
@@ -826,7 +1026,7 @@ async def test_delete_rejects_session_path_escape(tmp_path, monkeypatch):
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
         database_path = load_effective_config(repo_root=repo).database_path
@@ -853,7 +1053,7 @@ async def test_batch_delete_preserves_request_order_and_removes_all_indexed_rows
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
         by_session_id = {session["session_id"]: session for session in sessions}
         first = by_session_id[first_trace.parent.name]
@@ -911,7 +1111,7 @@ async def test_batch_delete_returns_partial_result_without_touching_failed_sessi
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
         by_session_id = {session["session_id"]: session for session in sessions}
         valid = by_session_id[valid_trace.parent.name]
@@ -948,7 +1148,7 @@ async def test_batch_delete_restores_staged_path_after_database_failure_and_cont
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         sessions = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"]
         by_session_id = {session["session_id"]: session for session in sessions}
         failed = by_session_id[failed_trace.parent.name]
@@ -1000,7 +1200,7 @@ async def test_batch_delete_rejects_invalid_evidence_ids_without_changing_sessio
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         response = await client.post(
             "/api/v1/evidence-library/sessions/batch-delete",
@@ -1031,7 +1231,7 @@ async def test_batch_delete_rejects_missing_or_malformed_body_without_changing_s
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         response = await client.post(
             "/api/v1/evidence-library/sessions/batch-delete",
@@ -1080,7 +1280,7 @@ async def test_batch_delete_post_commit_cleanup_failure_reports_pending_logical_
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
         database_path = _seed_all_evidence_tables(repo, evidence_id, session)
@@ -1140,7 +1340,7 @@ async def test_rescan_restores_deterministically_named_stage_after_precommit_pro
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         evidence_id = session["evidence_id"]
         original_delete_rows = service._delete_evidence_rows
@@ -1169,7 +1369,7 @@ async def test_rescan_restores_deterministically_named_stage_after_precommit_pro
         assert not trace_dir.parent.exists()
 
         monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
-        first_recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        first_recovery = await _rescan(client, force=True)
         assert first_recovery.json()["errors"] == []
         assert trace_dir.parent.is_dir()
         assert _indexed_session_count(repo, evidence_id) == 1
@@ -1182,7 +1382,7 @@ async def test_rescan_restores_deterministically_named_stage_after_precommit_pro
         assert second_staged_target.name == first_staged_target.name
 
         monkeypatch.setattr(service, "_delete_evidence_rows", original_delete_rows)
-        second_recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        second_recovery = await _rescan(client, force=True)
 
     assert second_recovery.json()["errors"] == []
     assert trace_dir.parent.is_dir()
@@ -1199,7 +1399,7 @@ async def test_single_delete_retry_before_rescan_recovers_interrupted_precommit_
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1237,7 +1437,7 @@ async def test_concurrent_single_delete_rejects_active_stage_without_restoring_i
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1291,7 +1491,7 @@ async def test_rescan_does_not_recover_or_prune_an_active_deletion(tmp_path, mon
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1317,7 +1517,9 @@ async def test_rescan_does_not_recover_or_prune_an_active_deletion(tmp_path, mon
         delete_result = active_delete.result(timeout=5)
 
     assert scan == {
+        "processed": 0,
         "ingested": 0,
+        "skipped": 0,
         "pruned": 0,
         "errors": [{
             "path": str(tmp_path / "config" / ".evidence-library-delete-locks"),
@@ -1341,7 +1543,7 @@ async def test_rescan_protects_interrupted_stage_when_recovery_target_drifts(
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1367,7 +1569,7 @@ async def test_rescan_protects_interrupted_stage_when_recovery_target_drifts(
                 )
                 conn.commit()
 
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
 
     assert recovery.status_code == 200
     assert recovery.json()["errors"] == [{
@@ -1387,7 +1589,7 @@ async def test_rescan_recovers_interrupted_temporary_sidecar_write(tmp_path, mon
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1407,7 +1609,7 @@ async def test_rescan_recovers_interrupted_temporary_sidecar_write(tmp_path, mon
         assert trace_dir.parent.is_dir()
 
         monkeypatch.setattr(service.json, "dump", original_json_dump)
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
         retry = await client.delete(f"/api/v1/evidence-library/sessions/{evidence_id}")
 
     assert recovery.json()["errors"] == []
@@ -1428,7 +1630,7 @@ async def test_rescan_retries_when_process_exits_during_precommit_recovery_metad
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1466,7 +1668,7 @@ async def test_rescan_retries_when_process_exits_during_precommit_recovery_metad
         assert staged_target.with_name(staged_target.name + ".json.tmp").is_file()
         monkeypatch.setattr(service.json, "dump", original_json_dump)
 
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
 
     assert recovery.json()["errors"] == []
     assert trace_dir.parent.is_dir()
@@ -1484,7 +1686,7 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1511,12 +1713,8 @@ async def test_rescan_rediscovers_postcommit_cleanup_after_process_exit_and_rest
     async with AsyncClient(
         transport=ASGITransport(app=restarted_app), base_url="http://restart"
     ) as restarted_client:
-        first_recovery = await restarted_client.post(
-            "/api/v1/evidence-library/rescan", json={"force": True}
-        )
-        second_recovery = await restarted_client.post(
-            "/api/v1/evidence-library/rescan", json={"force": True}
-        )
+        first_recovery = await _rescan(restarted_client, force=True)
+        second_recovery = await _rescan(restarted_client, force=True)
 
     expected_pending = [{
         "evidence_id": evidence_id,
@@ -1550,7 +1748,7 @@ async def test_rescan_reports_sidecar_after_exit_between_payload_and_metadata_cl
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0][
             "evidence_id"
         ]
@@ -1579,9 +1777,7 @@ async def test_rescan_reports_sidecar_after_exit_between_payload_and_metadata_cl
     async with AsyncClient(
         transport=ASGITransport(app=restarted_app), base_url="http://restart"
     ) as restarted_client:
-        recovery = await restarted_client.post(
-            "/api/v1/evidence-library/rescan", json={"force": True}
-        )
+        recovery = await _rescan(restarted_client, force=True)
 
     assert recovery.json()["errors"] == []
     assert recovery.json().get("cleanup_pending") == [{
@@ -1615,7 +1811,7 @@ async def test_postcommit_recovery_rejects_deterministic_out_of_root_paths_witho
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
 
     assert recovery.json()["cleanup_pending"] == []
     assert recovery.json()["errors"] == [{
@@ -1652,7 +1848,7 @@ async def test_postcommit_recovery_rejects_replaced_symlink_ancestor_before_meta
     runs_dir.symlink_to(moved_runs, target_is_directory=True)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
 
     assert recovery.json()["cleanup_pending"] == []
     assert recovery.json()["errors"] == [{
@@ -1698,7 +1894,7 @@ async def test_postcommit_recovery_rejects_symlink_swap_after_validation_without
         validate_then_replace_ancestor,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        recovery = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        recovery = await _rescan(client, force=True)
 
     assert recovery.json()["cleanup_pending"] == []
     assert recovery.json()["errors"] == [{
@@ -1717,7 +1913,7 @@ async def test_delete_rejects_unified_run_meta_id_mismatch(tmp_path, monkeypatch
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         run_meta_path = trace_dir.parent / "run_meta.json"
         run_meta = json.loads(run_meta_path.read_text())
@@ -1736,7 +1932,7 @@ async def test_delete_rejects_indexed_session_id_mismatch_with_directory_run_id(
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         session = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]
         database_path = load_effective_config(repo_root=repo).database_path
         with sqlite3.connect(database_path) as conn:
@@ -1780,7 +1976,7 @@ async def test_delete_rejects_nonliteral_unified_layout(tmp_path, monkeypatch):
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         response = await client.delete("/api/v1/evidence-library/sessions/" + evidence_id)
 
@@ -1810,7 +2006,7 @@ async def test_overview_png_rejects_session_symlink_swap_outside_configured_root
     app = _app_for(repo, tmp_path, monkeypatch)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        await _rescan(client, force=True)
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
         outside_session = tmp_path / "outside-session"
         session_dir.rename(outside_session)
@@ -1850,7 +2046,7 @@ async def test_decision_frame_missing_scenario_returns_404(tmp_path, monkeypatch
     app.include_router(routes.router)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        rescan = await client.post("/api/v1/evidence-library/rescan", json={"force": True})
+        rescan = await _rescan(client, force=True)
         assert rescan.status_code == 200
         evidence_id = (await client.get("/api/v1/evidence-library/sessions")).json()["sessions"][0]["evidence_id"]
 

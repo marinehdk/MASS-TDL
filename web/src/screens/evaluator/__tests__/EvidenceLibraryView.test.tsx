@@ -2,14 +2,25 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EvidenceReplaySession } from '../../../api/silApi';
+import type { EvidenceLibrarySessionsQuery, EvidenceReplaySession } from '../../../api/silApi';
 import { EvidenceLibraryView } from '../EvidenceLibraryView';
 
 const apiMocks = vi.hoisted(() => ({
   sessions: [] as Array<Record<string, unknown>>,
+  sessionsResponseOverride: null as Record<string, unknown> | null,
+  lastSessionsQuery: null as EvidenceLibrarySessionsQuery | null,
+  sessionsQueryHistory: [] as EvidenceLibrarySessionsQuery[],
+  sessionsIsFetching: false,
+  sessionsIsLoading: false,
+  sessionsHasData: true,
+  sessionsIsError: false,
+  sessionsError: null as unknown,
+  useRealSessionsQuery: false,
   rescan: vi.fn(),
   rescanUnwrap: vi.fn(),
   rescanIsLoading: false,
+  getRescanStatus: vi.fn(),
+  getRescanStatusUnwrap: vi.fn(),
   refetch: vi.fn(),
   refetchUnwrap: vi.fn(),
   deleteSession: vi.fn(),
@@ -26,22 +37,46 @@ const apiMocks = vi.hoisted(() => ({
   configFetch: vi.fn(),
 }));
 
-vi.mock('../../../api/silApi', () => ({
-  useGetEvidenceLibrarySessionsQuery: () => ({
-    data: { sessions: apiMocks.sessions },
-    isLoading: false,
-    refetch: apiMocks.refetch,
-  }),
-  useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
-  useDeleteEvidenceLibrarySessionMutation: () => [
-    apiMocks.deleteSession,
-    { isLoading: apiMocks.deleteIsLoading, error: null },
-  ],
-  useBatchDeleteEvidenceLibrarySessionsMutation: () => [
-    apiMocks.batchDeleteSessions,
-    { isLoading: apiMocks.batchDeleteIsLoading, error: null },
-  ],
-}));
+const defaultSessionsQuery: EvidenceLibrarySessionsQuery = {
+  page: 1,
+  page_size: 20,
+  sort_key: 'time',
+  sort_direction: 'desc',
+};
+
+vi.mock('../../../api/silApi', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/silApi')>('../../../api/silApi');
+  return {
+    ...actual,
+    useGetEvidenceLibrarySessionsQuery: (query: EvidenceLibrarySessionsQuery) => {
+      if (apiMocks.useRealSessionsQuery) return actual.useGetEvidenceLibrarySessionsQuery(query);
+      apiMocks.lastSessionsQuery = query ?? null;
+      if (query) apiMocks.sessionsQueryHistory.push(query);
+      const data = apiMocks.sessionsHasData
+        ? apiMocks.sessionsResponseOverride ?? buildSessionsResponse(query)
+        : undefined;
+      return {
+        data,
+        currentData: data,
+        isLoading: apiMocks.sessionsIsLoading,
+        isFetching: apiMocks.sessionsIsFetching,
+        isError: apiMocks.sessionsIsError,
+        error: apiMocks.sessionsError,
+        refetch: apiMocks.refetch,
+      };
+    },
+    useRescanEvidenceLibraryMutation: () => [apiMocks.rescan, { isLoading: apiMocks.rescanIsLoading }],
+    useLazyGetEvidenceLibraryRescanStatusQuery: () => [apiMocks.getRescanStatus],
+    useDeleteEvidenceLibrarySessionMutation: () => [
+      apiMocks.deleteSession,
+      { isLoading: apiMocks.deleteIsLoading, error: null },
+    ],
+    useBatchDeleteEvidenceLibrarySessionsMutation: () => [
+      apiMocks.batchDeleteSessions,
+      { isLoading: apiMocks.batchDeleteIsLoading, error: null },
+    ],
+  };
+});
 
 const primarySession = {
   evidence_id: '12345678-90ab-cdef-1234-567890abcdef',
@@ -122,6 +157,137 @@ const makeSessions = (count: number) => Array.from({ length: count }, (_, index)
   ingest_status: 'ok',
 }));
 
+const sessionScenarioCount = (session: Record<string, unknown>) => (
+  Array.isArray(session.scenario_ids) ? session.scenario_ids.length : Number(session.scenario_count ?? 0)
+);
+
+const sessionOutcome = (session: Record<string, unknown>) => {
+  const count = sessionScenarioCount(session);
+  const passed = Number(session.passed_scenarios ?? 0);
+  const failed = Number(session.failed_scenarios ?? 0);
+  if (failed > 0) return 'failed';
+  if (count > 0 && passed === count) return 'passed';
+  return 'unknown';
+};
+
+const sessionMode = (session: Record<string, unknown>) => {
+  const text = `${session.session_id ?? ''} ${session.suite ?? ''}`.toLowerCase();
+  if (['debug', 'dbg', 'trace', 'ctx'].some((marker) => text.includes(marker))) return 'debug';
+  if (text.includes('cohort')) return 'cohort';
+  if (['full', 'clean8', 'clean12'].some((marker) => text.includes(marker))) return 'full';
+  if (text.includes('fast') || session.suite === 'single') return 'avoidance';
+  return 'debug';
+};
+
+const modeLabels: Record<string, string> = {
+  debug: '调试验证',
+  cohort: '同类验证',
+  full: '完整验证',
+  avoidance: '避碰验证',
+};
+const outcomeLabels: Record<string, string> = { passed: '通过', failed: '不通过', unknown: '-' };
+const sourceLabels: Record<string, string> = { cli: 'CLI', front: 'Front' };
+
+const sessionSource = (session: Record<string, unknown>) => {
+  const raw = String(session.source ?? '');
+  const canonical = ['frontend', 'front'].includes(raw.toLowerCase()) ? 'front' : raw.toLowerCase() || '-';
+  return { value: canonical, label: sourceLabels[canonical] ?? (raw || '-') };
+};
+
+const sessionScenario = (session: Record<string, unknown>) => {
+  const scenarios = Array.isArray(session.scenario_ids) ? session.scenario_ids.map(String) : [];
+  if (scenarios.length === 0) return '-';
+  if (scenarios.length <= 2) return scenarios.join(', ');
+  return `${scenarios[0]} +${scenarios.length - 1}`;
+};
+
+const sessionWorktree = (session: Record<string, unknown>) => {
+  if (sessionSource(session).label === 'Front') return '';
+  if (session.worktree_name) return String(session.worktree_name);
+  const match = String(session.session_path ?? '').match(/\/\.worktrees\/([^/]+)\//);
+  return match?.[1] ?? String(session.branch ?? '-');
+};
+
+const makeFacet = (
+  sessions: Array<Record<string, unknown>>,
+  valueOf: (session: Record<string, unknown>) => string,
+  labelOf: (value: string) => string = (value) => value,
+) => Array.from(new Set(sessions.map(valueOf).filter((value) => value !== '')))
+  .sort((left, right) => left.localeCompare(right, 'zh-Hans-CN', { numeric: true }))
+  .map((value) => ({
+    value,
+    label: labelOf(value),
+    count: sessions.filter((session) => valueOf(session) === value).length,
+  }));
+
+const buildSessionsResponse = (query?: EvidenceLibrarySessionsQuery) => {
+  if (!query) return { sessions: apiMocks.sessions };
+  const facets = {
+    result: makeFacet(apiMocks.sessions, sessionOutcome, (value) => outcomeLabels[value]),
+    scenarioCount: makeFacet(apiMocks.sessions, (session) => String(sessionScenarioCount(session))),
+    mode: makeFacet(apiMocks.sessions, sessionMode, (value) => modeLabels[value]),
+    scenario: makeFacet(apiMocks.sessions, sessionScenario),
+    source: makeFacet(apiMocks.sessions, (session) => sessionSource(session).value, (value) => sourceLabels[value] ?? value),
+    worktree: makeFacet(apiMocks.sessions, sessionWorktree),
+  };
+  const search = query.search?.trim().toLocaleLowerCase() ?? '';
+  const filtered = apiMocks.sessions.filter((session) => {
+    const matchesSearch = !search || [
+      session.evidence_id,
+      session.session_id,
+      sessionScenario(session),
+      ...(Array.isArray(session.scenario_ids) ? session.scenario_ids : []),
+      sessionSource(session).label,
+      session.source,
+      session.suite,
+      sessionMode(session),
+      modeLabels[sessionMode(session)],
+      sessionWorktree(session),
+      session.worktree_name,
+      session.branch,
+      sessionOutcome(session),
+      outcomeLabels[sessionOutcome(session)],
+    ].some((value) => String(value ?? '').toLocaleLowerCase().includes(search));
+    return matchesSearch
+      && (!query.result || sessionOutcome(session) === query.result)
+      && (query.scenario_count === undefined || sessionScenarioCount(session) === query.scenario_count)
+      && (!query.mode || sessionMode(session) === query.mode)
+      && (!query.scenario || sessionScenario(session) === query.scenario)
+      && (!query.source || sessionSource(session).value === query.source)
+      && (!query.worktree || sessionWorktree(session) === query.worktree);
+  });
+  const sortValue = (session: Record<string, unknown>) => {
+    if (query.sort_key === 'time') return String(session.created_at ?? session.ended_at ?? session.session_id ?? '');
+    if (query.sort_key === 'result') return outcomeLabels[sessionOutcome(session)];
+    if (query.sort_key === 'scenarioCount') return sessionScenarioCount(session);
+    if (query.sort_key === 'mode') return modeLabels[sessionMode(session)];
+    if (query.sort_key === 'scenario') return sessionScenario(session);
+    if (query.sort_key === 'source') return sessionSource(session).label;
+    return sessionWorktree(session);
+  };
+  filtered.sort((left, right) => String(left.evidence_id).localeCompare(String(right.evidence_id)));
+  filtered.sort((left, right) => {
+    const leftValue = sortValue(left);
+    const rightValue = sortValue(right);
+    const result = typeof leftValue === 'number' && typeof rightValue === 'number'
+      ? leftValue - rightValue
+      : String(leftValue).localeCompare(String(rightValue), 'zh-Hans-CN', { numeric: true });
+    return query.sort_direction === 'asc' ? result : -result;
+  });
+  const totalPages = Math.max(1, Math.ceil(filtered.length / query.page_size));
+  const page = Math.min(Math.max(query.page, 1), totalPages);
+  const offset = (page - 1) * query.page_size;
+  return {
+    sessions: filtered.slice(offset, offset + query.page_size),
+    total: apiMocks.sessions.length,
+    filtered_total: filtered.length,
+    page,
+    page_size: query.page_size,
+    total_pages: totalPages,
+    facets,
+  };
+};
+
 const deleteButton = (sessionId = primarySession.session_id) =>
   screen.getByRole('button', { name: `删除 ${sessionId}` });
 
@@ -140,9 +306,20 @@ const configIdentityResponse = () => new Response(
 beforeEach(() => {
   window.localStorage.clear();
   apiMocks.sessions = [{ ...primarySession }, { ...secondarySession }];
+  apiMocks.sessionsResponseOverride = null;
+  apiMocks.lastSessionsQuery = null;
+  apiMocks.sessionsQueryHistory = [];
+  apiMocks.sessionsIsFetching = false;
+  apiMocks.sessionsIsLoading = false;
+  apiMocks.sessionsHasData = true;
+  apiMocks.sessionsIsError = false;
+  apiMocks.sessionsError = null;
+  apiMocks.useRealSessionsQuery = false;
   apiMocks.rescan.mockReset();
   apiMocks.rescanUnwrap.mockReset();
   apiMocks.rescanIsLoading = false;
+  apiMocks.getRescanStatus.mockReset();
+  apiMocks.getRescanStatusUnwrap.mockReset();
   apiMocks.refetch.mockReset();
   apiMocks.refetchUnwrap.mockReset();
   apiMocks.deleteSession.mockReset();
@@ -161,6 +338,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', apiMocks.configFetch);
   apiMocks.rescanUnwrap.mockResolvedValue({ ingested: 1, pruned: 0, errors: [] });
   apiMocks.rescan.mockReturnValue({ unwrap: apiMocks.rescanUnwrap });
+  apiMocks.getRescanStatus.mockReturnValue({ unwrap: apiMocks.getRescanStatusUnwrap });
   apiMocks.refetchUnwrap.mockResolvedValue(undefined);
   apiMocks.refetch.mockReturnValue({ unwrap: apiMocks.refetchUnwrap });
   apiMocks.deleteUnwrap.mockResolvedValue({
@@ -255,6 +433,127 @@ describe('EvidenceLibraryView', () => {
     expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
   });
 
+  it('retains loaded rows, polls progress, and refetches once after completion', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-progress',
+      state: 'queued',
+      force: false,
+      total: 2,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap
+      .mockResolvedValueOnce({
+        job_id: 'job-progress',
+        state: 'running',
+        force: false,
+        total: 2,
+        processed: 1,
+        ingested: 1,
+        skipped: 0,
+        pruned: 0,
+        errors: [],
+        cleanup_pending: [],
+        started_at: '2026-07-20T00:00:00Z',
+        finished_at: null,
+      })
+      .mockResolvedValueOnce({
+        job_id: 'job-progress',
+        state: 'completed',
+        force: false,
+        total: 2,
+        processed: 2,
+        ingested: 1,
+        skipped: 1,
+        pruned: 0,
+        errors: [],
+        cleanup_pending: [],
+        started_at: '2026-07-20T00:00:00Z',
+        finished_at: '2026-07-20T00:00:01Z',
+      });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: '扫描 1/2' })).toBeDisabled();
+    expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(apiMocks.refetch).toHaveBeenCalledTimes(1));
+    expect(apiMocks.refetchUnwrap).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops polling and exposes worker failure without refetching sessions', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-failed',
+      state: 'queued',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap.mockResolvedValueOnce({
+      job_id: 'job-failed',
+      state: 'failed',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [{ path: 'rescan', error: 'scan exploded' }],
+      cleanup_pending: [],
+      started_at: '2026-07-20T00:00:00Z',
+      finished_at: '2026-07-20T00:00:01Z',
+    });
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    await waitFor(() => expect(screen.getByText(/scan exploded/)).toBeInTheDocument());
+    expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1);
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
+  it('stops polling and re-enables scanning after a status request error', async () => {
+    apiMocks.rescanUnwrap.mockResolvedValueOnce({
+      job_id: 'job-status-error',
+      state: 'queued',
+      force: false,
+      total: 0,
+      processed: 0,
+      ingested: 0,
+      skipped: 0,
+      pruned: 0,
+      errors: [],
+      cleanup_pending: [],
+      started_at: null,
+      finished_at: null,
+    });
+    apiMocks.getRescanStatusUnwrap.mockRejectedValueOnce(new Error('status unavailable'));
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '扫描' })).toBeEnabled());
+    expect(screen.getAllByText(/扫描失败/).length).toBeGreaterThan(0);
+    expect(apiMocks.getRescanStatusUnwrap).toHaveBeenCalledTimes(1);
+    expect(apiMocks.refetch).not.toHaveBeenCalled();
+  });
+
   it('shows every HTTP-200 scan error while retaining successful result counts', async () => {
     apiMocks.rescanUnwrap.mockResolvedValueOnce({
       ingested: 2,
@@ -307,15 +606,17 @@ describe('EvidenceLibraryView', () => {
     ['suite', 'clean8'],
     ['mode', '完整验证'],
     ['result', '不通过'],
-  ])('filters rows by %s search text', (_dimension, query) => {
+  ])('filters rows by %s search text', async (_dimension, query) => {
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
     fireEvent.change(screen.getByRole('searchbox', { name: '筛选仿真记录' }), {
       target: { value: query },
     });
 
-    expect(deleteButton(secondarySession.session_id)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(deleteButton(secondarySession.session_id)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: `删除 ${primarySession.session_id}` })).not.toBeInTheDocument();
+    });
   });
 
   it('opens compact filter menus for scenario counts and applies a selection', () => {
@@ -446,6 +747,180 @@ describe('EvidenceLibraryView', () => {
     expect(search).toHaveStyle({ outline: '2px solid var(--c-phos)' });
   });
 
+  it('renders server totals and pages while rendering only the current 20 rows', () => {
+    apiMocks.sessions = makeSessions(20);
+    apiMocks.sessionsResponseOverride = {
+      ...buildSessionsResponse({
+        page: 1,
+        page_size: 20,
+        sort_key: 'time',
+        sort_direction: 'desc',
+      }),
+      total: 313,
+      filtered_total: 313,
+      page: 1,
+      page_size: 20,
+      total_pages: 16,
+    };
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByText('记录数: 313')).toBeInTheDocument();
+    expect(screen.getByText('显示: 313')).toBeInTheDocument();
+    expect(screen.getByText('1 / 16')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(20);
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, page_size: 20 });
+  });
+
+  it('shows an explicit initial list error instead of false zero totals', () => {
+    apiMocks.sessionsHasData = false;
+    apiMocks.sessionsIsError = true;
+    apiMocks.sessionsError = { status: 503, data: { detail: 'index unavailable' } };
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('证据列表加载失败');
+    expect(screen.getByRole('alert')).toHaveTextContent('503');
+    expect(screen.queryByText('记录数: 0')).not.toBeInTheDocument();
+    expect(screen.queryByText('显示: 0')).not.toBeInTheDocument();
+  });
+
+  it('keeps the last page visible and reports a background refresh error', () => {
+    apiMocks.sessions = makeSessions(20);
+    apiMocks.sessionsIsError = true;
+    apiMocks.sessionsError = { status: 500, data: { detail: 'refresh failed' } };
+
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(20);
+    expect(screen.getByText('记录数: 20')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败，当前显示上次结果');
+    expect(screen.getByRole('alert')).toHaveTextContent('500');
+  });
+
+  it('requests the next server page without slicing current rows locally', () => {
+    apiMocks.sessions = makeSessions(41);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 2, page_size: 20 });
+    expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(20);
+  });
+
+  it('resets page for page size, sort, and canonical filters', () => {
+    apiMocks.sessions = makeSessions(41);
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    fireEvent.change(screen.getByRole('combobox', { name: '每页记录数' }), { target: { value: '50' } });
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, page_size: 50 });
+
+    fireEvent.click(screen.getByRole('button', { name: '按仿真时间升序' }));
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, sort_key: 'time', sort_direction: 'asc' });
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选模式' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '避碰验证' }));
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, mode: 'avoidance' });
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选场景数量' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '1' }));
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, scenario_count: 1 });
+  });
+
+  it('debounces server search for 250 ms and resets its page', () => {
+    vi.useFakeTimers();
+    apiMocks.sessions = makeSessions(41);
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+      fireEvent.change(screen.getByRole('searchbox', { name: '筛选仿真记录' }), {
+        target: { value: 'page_session_00' },
+      });
+      act(() => vi.advanceTimersByTime(249));
+      expect(apiMocks.lastSessionsQuery?.search).toBeUndefined();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, search: 'page_session_00' });
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders global facet options absent from the current page and sends canonical values', () => {
+    apiMocks.sessions = makeSessions(20);
+    apiMocks.sessionsResponseOverride = {
+      ...buildSessionsResponse({
+        page: 1,
+        page_size: 20,
+        sort_key: 'time',
+        sort_direction: 'desc',
+      }),
+      facets: {
+        result: [],
+        scenarioCount: [],
+        mode: [
+          { value: 'avoidance', label: '避碰验证', count: 20 },
+          { value: 'full', label: '完整验证', count: 1 },
+        ],
+        scenario: [],
+        source: [],
+        worktree: [],
+      },
+    };
+    render(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '筛选模式' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '完整验证' }));
+
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 1, mode: 'full' });
+  });
+
+  it('accepts a backend-normalized page after the requested page shrinks', () => {
+    apiMocks.sessions = makeSessions(41);
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 3 });
+
+    apiMocks.sessionsResponseOverride = {
+      ...buildSessionsResponse({
+        page: 2,
+        page_size: 20,
+        sort_key: 'time',
+        sort_direction: 'desc',
+      }),
+      page: 2,
+      total_pages: 2,
+    };
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.getByText('2 / 2')).toBeInTheDocument();
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 2 });
+  });
+
+  it('retains the previous page while the next page is fetching', () => {
+    apiMocks.sessions = makeSessions(41);
+    const view = render(<EvidenceLibraryView onOpen={vi.fn()} />);
+    const previousFirstRow = screen.getAllByRole('row')[1].textContent;
+
+    apiMocks.sessionsIsFetching = true;
+    apiMocks.sessionsResponseOverride = buildSessionsResponse({
+      page: 1,
+      page_size: 20,
+      sort_key: 'time',
+      sort_direction: 'desc',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    view.rerender(<EvidenceLibraryView onOpen={vi.fn()} />);
+
+    expect(screen.queryByText('Loading evidence')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent(previousFirstRow ?? '');
+    expect(apiMocks.lastSessionsQuery).toMatchObject({ page: 2 });
+  });
+
   it('supports 20 and 50 row pages', () => {
     apiMocks.sessions = makeSessions(51);
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
@@ -457,7 +932,7 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('button', { name: /^删除 page_session_/ })).toHaveLength(1);
   });
 
-  it('selects safe rows across pages and snapshots all filtered safe rows', () => {
+  it('selects safe rows across pages and preserves prior-page snapshots', () => {
     apiMocks.sessions = [
       ...makeSessions(25),
       {
@@ -494,12 +969,9 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getByText('已选择 24 条')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /unsafe-scenario/ })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '选择全部 25 条筛选结果' }));
-    expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '选择全部 25 条筛选结果' })).not.toBeInTheDocument();
-
     fireEvent.click(screen.getByRole('button', { name: '上一页' }));
-    expect(screen.getByText('已选择 25 条')).toBeInTheDocument();
+    expect(screen.getByText('已选择 24 条')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '选择当前页' })).not.toBeChecked();
   });
 
   it('shows cancel selection and hides select-all when every filtered safe row is selected', () => {
@@ -738,7 +1210,7 @@ describe('EvidenceLibraryView', () => {
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('two-a, two-b');
   });
 
-  it('resets to the first page when search changes', () => {
+  it('resets to the first page when search changes', async () => {
     apiMocks.sessions = makeSessions(25);
     render(<EvidenceLibraryView onOpen={vi.fn()} />);
 
@@ -748,8 +1220,10 @@ describe('EvidenceLibraryView', () => {
       target: { value: 'page_session_00' },
     });
 
-    expect(screen.getByText('1 / 1')).toBeInTheDocument();
-    expect(deleteButton('page_session_00')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('1 / 1')).toBeInTheDocument();
+      expect(deleteButton('page_session_00')).toBeInTheDocument();
+    });
   });
 
   it('batch confirmation summarizes mixed selected sessions and closes after complete success', async () => {
@@ -819,6 +1293,7 @@ describe('EvidenceLibraryView', () => {
 
     await waitFor(() => expect(apiMocks.batchDeleteSessions).toHaveBeenCalledWith({
       evidence_ids: [...apiMocks.sessions]
+        .sort((left, right) => String(left.evidence_id).localeCompare(String(right.evidence_id)))
         .sort((left, right) => Date.parse(String(right.created_at)) - Date.parse(String(left.created_at)))
         .map((session) => session.evidence_id),
     }));
@@ -1727,6 +2202,242 @@ describe('evidence library RTK invalidation', () => {
     return { silApi, store };
   };
 
+  it('keeps the failed requested page active while rendering the last fulfilled page', async () => {
+    const requestedPages: string[] = [];
+    const fetchMock = vi.fn(async (input: Request | string) => {
+      if (typeof input === 'string') return configIdentityResponse();
+      const url = new URL(input.url);
+      if (url.pathname.endsWith('/evidence-library/config')) return configIdentityResponse();
+
+      const requestedPage = url.searchParams.get('page') ?? '';
+      requestedPages.push(requestedPage);
+      if (requestedPage === '2') return jsonResponse({ detail: 'page unavailable' }, 500);
+      return jsonResponse({
+        sessions: [primarySession],
+        total: 21,
+        filtered_total: 21,
+        page: 1,
+        page_size: 20,
+        total_pages: 2,
+        facets: { result: [], scenarioCount: [], mode: [], scenario: [], source: [], worktree: [] },
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    apiMocks.useRealSessionsQuery = true;
+    const view = render(
+      <Provider store={store}>
+        <EvidenceLibraryView onOpen={vi.fn()} />
+      </Provider>,
+    );
+
+    try {
+      await screen.findByRole('button', { name: `删除 ${primarySession.session_id}` });
+      expect(screen.getByText('1 / 2')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+
+      await waitFor(() => expect(requestedPages).toEqual(['1', '2']));
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败'));
+      expect(screen.getByRole('alert')).toHaveTextContent('500');
+      expect(screen.getByRole('button', { name: `删除 ${primarySession.session_id}` })).toBeInTheDocument();
+      expect(screen.getByText('2 / 2')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '上一页' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: '下一页' })).toBeDisabled();
+
+      await act(async () => Promise.resolve());
+      expect(screen.getByRole('alert')).toHaveTextContent('证据列表刷新失败');
+      expect(requestedPages).toEqual(['1', '2']);
+    } finally {
+      view.unmount();
+      apiMocks.useRealSessionsQuery = false;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('serializes every evidence-list query parameter exactly', async () => {
+    let requestedUrl = '';
+    const fetchMock = vi.fn(async (request: Request) => {
+      requestedUrl = request.url;
+      return jsonResponse({
+        sessions: [],
+        total: 0,
+        filtered_total: 0,
+        page: 3,
+        page_size: 50,
+        total_pages: 1,
+        facets: { result: [], scenarioCount: [], mode: [], scenario: [], source: [], worktree: [] },
+      });
+    });
+    const query: EvidenceLibrarySessionsQuery = {
+      page: 3,
+      page_size: 50,
+      search: 'rule 15',
+      sort_key: 'scenarioCount',
+      sort_direction: 'asc',
+      result: 'failed',
+      scenario_count: 8,
+      mode: 'full',
+      scenario: 'colreg-rule15-cs',
+      source: 'front',
+      worktree: 'tree-a',
+    };
+    const { silApi, store } = await createApiStore(fetchMock);
+
+    try {
+      await store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query)).unwrap();
+
+      const params = Object.fromEntries(new URL(requestedUrl).searchParams.entries());
+      expect(params).toEqual({
+        page: '3',
+        page_size: '50',
+        search: 'rule 15',
+        sort_key: 'scenarioCount',
+        sort_direction: 'asc',
+        result: 'failed',
+        scenario_count: '8',
+        mode: 'full',
+        scenario: 'colreg-rule15-cs',
+        source: 'front',
+        worktree: 'tree-a',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('patches a successful single delete in a non-default page cache and preserves refetch error', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      page: 2,
+      page_size: 50,
+      search: 'rule15',
+      sort_key: 'scenario',
+      sort_direction: 'asc',
+      result: 'failed',
+      scenario_count: 1,
+      mode: 'full',
+      scenario: 'colreg-rule15-cs',
+      source: 'front',
+      worktree: 'tree-a',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return jsonResponse({ detail: 'refetch failed' }, 500);
+      }
+      return jsonResponse({
+        evidence_id: primarySession.evidence_id,
+        deleted_path: primarySession.deletion_target,
+        filesystem_deleted: true,
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(primarySession.evidence_id),
+      ).unwrap();
+      await waitFor(() => expect(getCount).toBe(2));
+      await waitFor(() => {
+        const cached = silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState());
+        expect(cached.isError).toBe(true);
+        expect(cached.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('leaves a non-default page cache unchanged when single delete fails', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      ...defaultSessionsQuery,
+      page: 2,
+      search: 'non-default',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        return jsonResponse({ sessions: [primarySession, secondarySession] });
+      }
+      return jsonResponse({ detail: 'delete failed' }, 500);
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await expect(store.dispatch(
+        silApi.endpoints.deleteEvidenceLibrarySession.initiate(primarySession.evidence_id),
+      ).unwrap()).rejects.toBeDefined();
+      expect(getCount).toBe(1);
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState()).data?.sessions
+        .map((session) => session.evidence_id)).toEqual([
+          primarySession.evidence_id,
+          secondarySession.evidence_id,
+        ]);
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('patches only successful batch deletions in a non-default page cache', async () => {
+    const query: EvidenceLibrarySessionsQuery = {
+      ...defaultSessionsQuery,
+      page: 4,
+      search: 'batch-page',
+      sort_key: 'source',
+    };
+    let getCount = 0;
+    const fetchMock = vi.fn(async (request: Request) => {
+      if (request.method === 'GET') {
+        getCount += 1;
+        if (getCount === 1) return jsonResponse({ sessions: [primarySession, secondarySession] });
+        return jsonResponse({ detail: 'refetch failed' }, 500);
+      }
+      return jsonResponse({
+        requested: 2,
+        deleted: 1,
+        failed: 1,
+        results: [
+          {
+            evidence_id: primarySession.evidence_id,
+            deleted_path: primarySession.deletion_target,
+            filesystem_deleted: true,
+            status: 'deleted',
+          },
+          { evidence_id: secondarySession.evidence_id, status: 'failed', error: 'not deletable' },
+        ],
+      });
+    });
+    const { silApi, store } = await createApiStore(fetchMock);
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(query));
+
+    try {
+      await subscription.unwrap();
+      await store.dispatch(silApi.endpoints.batchDeleteEvidenceLibrarySessions.initiate({
+        evidence_ids: [primarySession.evidence_id, secondarySession.evidence_id],
+      })).unwrap();
+      await waitFor(() => {
+        const cached = silApi.endpoints.getEvidenceLibrarySessions.select(query)(store.getState());
+        expect(cached.isError).toBe(true);
+        expect(cached.data?.sessions.map((session) => session.evidence_id)).toEqual([
+          secondarySession.evidence_id,
+        ]);
+      });
+    } finally {
+      subscription.unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('refetches once after every fulfilled scan, including zero-change and error results', async () => {
     let scanResponse = jsonResponse({ detail: 'scan rejected' }, 500);
     let getCount = 0;
@@ -1738,7 +2449,7 @@ describe('evidence library RTK invalidation', () => {
       return scanResponse;
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -1775,7 +2486,7 @@ describe('evidence library RTK invalidation', () => {
       return deleteResponse;
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -1828,7 +2539,7 @@ describe('evidence library RTK invalidation', () => {
       });
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -1843,7 +2554,7 @@ describe('evidence library RTK invalidation', () => {
       });
       expect(result.deleted).toBe(1);
       await waitFor(() => expect(getCount).toBe(2));
-      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState()).data?.sessions
         .map((session) => session.evidence_id)).toEqual([secondarySession.evidence_id]);
     } finally {
       subscription.unsubscribe();
@@ -1863,7 +2574,7 @@ describe('evidence library RTK invalidation', () => {
       return jsonResponse({ detail: 'batch delete rejected' }, 500);
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -1874,7 +2585,7 @@ describe('evidence library RTK invalidation', () => {
       ).unwrap()).rejects.toBeDefined();
       await waitFor(() => {
         expect(getCount).toBe(2);
-        expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+        expect(silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState()).data?.sessions
           .map((session) => session.evidence_id)).toEqual([
             secondarySession.evidence_id,
           ]);
@@ -1943,7 +2654,8 @@ describe('evidence library RTK invalidation', () => {
     });
     const { silApi, store } = await createApiStore(fetchMock);
     const MountedSessions = () => {
-      const { data } = silApi.useGetEvidenceLibrarySessionsQuery();
+      const { data: lastFulfilledData, currentData } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const data = currentData ?? lastFulfilledData;
       return data?.sessions.map((session) => (
         <button key={session.evidence_id} type="button" aria-label={`mounted batch delete ${session.evidence_id}`}>
           {session.evidence_id}
@@ -1980,8 +2692,8 @@ describe('evidence library RTK invalidation', () => {
         'GET-3 500',
       ]));
       await waitFor(() => {
-        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
-        expect(query.isSuccess).toBe(true);
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
+        expect(query.isError).toBe(true);
         expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
           secondarySession.evidence_id,
         ]);
@@ -2028,7 +2740,7 @@ describe('evidence library RTK invalidation', () => {
       return jsonResponse({ detail: 'session already pruned' }, 404);
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -2049,7 +2761,7 @@ describe('evidence library RTK invalidation', () => {
       expect(scanGetSignal?.aborted).toBe(false);
       expect(getCount).toBe(2);
       await waitFor(() => {
-        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
         expect(query.isSuccess).toBe(true);
         expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
           secondarySession.evidence_id,
@@ -2080,7 +2792,7 @@ describe('evidence library RTK invalidation', () => {
       });
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -2089,18 +2801,18 @@ describe('evidence library RTK invalidation', () => {
       ).unwrap();
       await waitFor(() => expect(getCount).toBe(2));
 
-      const pendingQuery = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      const pendingQuery = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
       expect(pendingQuery.data?.sessions.map((session) => session.evidence_id)).toEqual([
         secondarySession.evidence_id,
       ]);
 
       resolveRefetch(jsonResponse({ detail: 'stale list refresh failed' }, 500));
       await waitFor(() => {
-        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
-        expect(query.isSuccess).toBe(true);
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
+        expect(query.isError).toBe(true);
       });
 
-      const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
       expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
         secondarySession.evidence_id,
       ]);
@@ -2155,7 +2867,8 @@ describe('evidence library RTK invalidation', () => {
     });
     const { silApi, store } = await createApiStore(fetchMock);
     const MountedSessions = () => {
-      const { data } = silApi.useGetEvidenceLibrarySessionsQuery();
+      const { data: lastFulfilledData, currentData } = silApi.useGetEvidenceLibrarySessionsQuery(defaultSessionsQuery);
+      const data = currentData ?? lastFulfilledData;
       return data?.sessions.map((session) => (
         <button key={session.evidence_id} type="button" aria-label={`mounted delete ${session.evidence_id}`}>
           {session.evidence_id}
@@ -2170,7 +2883,7 @@ describe('evidence library RTK invalidation', () => {
 
     try {
       await screen.findByRole('button', { name: `mounted delete ${raceSession.evidence_id}` });
-      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions)
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState()).data?.sessions)
         .toHaveLength(2);
 
       await act(async () => {
@@ -2194,11 +2907,11 @@ describe('evidence library RTK invalidation', () => {
         'GET-3 500',
       ]));
       await waitFor(() => {
-        const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
-        expect(query.isSuccess).toBe(true);
+        const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
+        expect(query.isError).toBe(true);
       });
 
-      const query = silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState());
+      const query = silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState());
       expect(query.data?.sessions.map((session) => session.evidence_id)).toEqual([
         secondarySession.evidence_id,
       ]);
@@ -2238,7 +2951,7 @@ describe('evidence library RTK invalidation', () => {
       return jsonResponse({ ingested: 1, pruned: 0, errors: [] });
     });
     const { silApi, store } = await createApiStore(fetchMock);
-    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate());
+    const subscription = store.dispatch(silApi.endpoints.getEvidenceLibrarySessions.initiate(defaultSessionsQuery));
 
     try {
       await subscription.unwrap();
@@ -2246,13 +2959,13 @@ describe('evidence library RTK invalidation', () => {
         silApi.endpoints.deleteEvidenceLibrarySession.initiate(rebuiltSession.evidence_id),
       ).unwrap();
       await waitFor(() => expect(getCount).toBe(2));
-      expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+      expect(silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState()).data?.sessions
         .map((session) => session.evidence_id)).toEqual([secondarySession.evidence_id]);
 
       await store.dispatch(silApi.endpoints.rescanEvidenceLibrary.initiate({ force: false })).unwrap();
       await waitFor(() => expect(getCount).toBe(3));
       await waitFor(() => {
-        expect(silApi.endpoints.getEvidenceLibrarySessions.select()(store.getState()).data?.sessions
+        expect(silApi.endpoints.getEvidenceLibrarySessions.select(defaultSessionsQuery)(store.getState()).data?.sessions
           .map((session) => session.evidence_id)).toEqual([
           rebuiltSession.evidence_id,
           secondarySession.evidence_id,

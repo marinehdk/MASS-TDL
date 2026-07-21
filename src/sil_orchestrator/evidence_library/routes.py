@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BeforeValidator
 
 from .service import (
+    EvidenceSessionListQuery,
+    EvidenceRescanManager,
     delete_evidence_session,
     delete_evidence_sessions,
     get_config_payload,
@@ -13,12 +17,12 @@ from .service import (
     get_overview_png_path,
     get_replay,
     list_sessions,
-    rescan_all,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 router = APIRouter(prefix="/api/v1/evidence-library", tags=["evidence-library"])
+_rescan_manager = EvidenceRescanManager()
 
 
 @router.get("/config")
@@ -32,14 +36,50 @@ async def get_roots():
     return {"roots": payload["roots"]}
 
 
-@router.post("/rescan")
+@router.post("/rescan", status_code=202)
 async def rescan(request: dict):
-    return rescan_all(repo_root=REPO_ROOT, force=bool(request.get("force", False)))
+    return _rescan_manager.start(
+        repo_root=REPO_ROOT,
+        force=bool(request.get("force", False)),
+    )
+
+
+@router.get("/rescan/status")
+async def rescan_status():
+    return _rescan_manager.status()
 
 
 @router.get("/sessions")
-async def sessions(limit: int = 200):
-    return {"sessions": list_sessions(limit=limit, repo_root=REPO_ROOT)}
+async def sessions(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[Literal[20, 50], BeforeValidator(int), Query()] = 20,
+    search: str = "",
+    sort_key: Literal["time", "result", "scenarioCount", "mode", "scenario", "source", "worktree"] = "time",
+    sort_direction: Literal["asc", "desc"] = "desc",
+    result: Literal["passed", "failed", "unknown"] | None = None,
+    scenario_count: Annotated[int | None, Query(ge=0)] = None,
+    mode: Literal["avoidance", "debug", "cohort", "full"] | None = None,
+    scenario: str | None = None,
+    source: str | None = None,
+    worktree: str | None = None,
+    limit: Annotated[int | None, Query(include_in_schema=False)] = None,
+):
+    if limit is not None:
+        raise HTTPException(status_code=422, detail="limit is not supported; use page and page_size")
+    query = EvidenceSessionListQuery(
+        page=page,
+        page_size=page_size,
+        search=search.strip(),
+        sort_key=sort_key,
+        sort_direction=sort_direction,
+        result=result,
+        scenario_count=scenario_count,
+        mode=mode,
+        scenario=scenario,
+        source=source,
+        worktree=worktree,
+    )
+    return list_sessions(query, repo_root=REPO_ROOT)
 
 
 def _batch_evidence_ids(request: dict) -> list[str]:

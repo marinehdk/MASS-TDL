@@ -48,6 +48,22 @@ vi.mock('../../api/silApi', () => ({
   })),
 }));
 
+vi.mock('../evaluator/EvidenceLibraryView', () => ({
+  EvidenceLibraryView: ({ onOpen }: { onOpen: (evidenceId: string) => void }) => (
+    <button type="button" onClick={() => onOpen('evidence-123')}>Evidence Library</button>
+  ),
+}));
+
+vi.mock('../evaluator/ReplayDetailView', () => ({
+  ReplayDetailView: ({ evidenceId, scenarioId }: { evidenceId: string; scenarioId: string }) => (
+    <div data-testid="trajectory-replay">
+      <span>{evidenceId}</span>
+      <span>{scenarioId}</span>
+      <div data-testid="timeline-6lane" />
+    </div>
+  ),
+}));
+
 const emptyEvidenceLibrary = () => ({
   data: { sessions: [] },
   isLoading: false,
@@ -131,7 +147,7 @@ describe('SimulationEvaluator', () => {
   it('renders replay detail successfully with indexed replay data', () => {
     apiMocks.getEvidenceLibrarySessions.mockReturnValue(evidenceLibraryWithScenario());
     render(<SimulationEvaluator evidenceId="evidence-123" />);
-    expect(screen.getByText('session-123')).toBeInTheDocument();
+    expect(screen.getByText('evidence-123')).toBeInTheDocument();
     expect(screen.getByText('colreg-rule14-ho')).toBeInTheDocument();
     expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-6lane')).toBeInTheDocument();
@@ -147,7 +163,7 @@ describe('SimulationEvaluator', () => {
     window.location.hash = '#/evaluator';
 
     render(<SimulationEvaluator />);
-    fireEvent.click(screen.getByText('Open Replay'));
+    fireEvent.click(screen.getByText('Evidence Library'));
 
     expect(window.location.hash).toBe('#/evaluator/evidence-123');
   });
@@ -164,9 +180,14 @@ describe('SimulationEvaluator', () => {
 
     render(<SimulationEvaluator evidenceId="latest" />);
 
-    expect(apiMocks.getEvidenceReplay).toHaveBeenCalledWith(
-      { evidenceId: 'evidence-123', scenarioId: 'latest-scenario' },
-    );
+    expect(screen.getByText('evidence-123')).toBeInTheDocument();
+    expect(screen.getByText('latest-scenario')).toBeInTheDocument();
+    expect(apiMocks.getEvidenceLibrarySessions).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 20,
+      sort_key: 'time',
+      sort_direction: 'desc',
+    });
     expect(screen.getByTestId('trajectory-replay')).toBeInTheDocument();
   });
 
@@ -184,10 +205,42 @@ describe('SimulationEvaluator', () => {
 
     render(<SimulationEvaluator evidenceId="evidence-123" />);
 
-    expect(apiMocks.getEvidenceReplay).toHaveBeenCalledWith(
-      { evidenceId: 'evidence-123', scenarioId: 'indexed-scenario' },
-    );
+    expect(screen.getByText('evidence-123')).toBeInTheDocument();
+    expect(screen.getByText('indexed-scenario')).toBeInTheDocument();
     expect(apiMocks.getDecisionFrame).not.toHaveBeenCalled();
+  });
+
+  it('queries server metadata by exact evidence id before opening replay', () => {
+    apiMocks.getEvidenceLibrarySessions.mockReturnValue({
+      ...evidenceLibraryWithScenario('page-21-scenario'),
+      data: {
+        sessions: [
+          {
+            ...evidenceLibraryWithScenario('fuzzy-scenario').data.sessions[0],
+            evidence_id: 'evidence-123-similar',
+          },
+          evidenceLibraryWithScenario('page-21-scenario').data.sessions[0],
+        ],
+      },
+    });
+
+    render(<SimulationEvaluator evidenceId="evidence-123" />);
+
+    expect(apiMocks.getEvidenceLibrarySessions).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 20,
+      search: 'evidence-123',
+      sort_key: 'time',
+      sort_direction: 'desc',
+    });
+    expect(screen.getByText('evidence-123')).toBeInTheDocument();
+    expect(screen.getByText('page-21-scenario')).toBeInTheDocument();
+  });
+
+  it('does not issue a route metadata query without an evidence id', () => {
+    render(<SimulationEvaluator />);
+
+    expect(apiMocks.getEvidenceLibrarySessions).not.toHaveBeenCalled();
   });
 
   it('skips replay queries until evidence id and indexed scenario id are known', () => {

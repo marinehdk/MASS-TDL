@@ -3642,3 +3642,86 @@ Merge the Evidence Library replay/database management branch into the local
   promotion-gate robustness fixes on top of the merged feature branch.
 - Temporary `colregs-nlp-cpa-fix` containers were stopped to avoid ROS domain
   contamination during verification.
+
+---
+
+## [2026-07-20] Codex / `58dd5e285` / Evidence Library Background Rescan
+
+### Task Goal
+Prevent manual Evidence Library scans from blocking the evaluator, make
+unchanged scans incremental, honor force rescans, and expose live progress.
+
+### Core Changes
+- Replaced synchronous rescan route with a process-local, single-flight worker
+  and immediate HTTP 202 job snapshot.
+- Added rescan status/progress API with terminal success and failure states.
+- Skipped sessions whose source mtime and successful ingest record are
+  unchanged; `force=true` always reingests.
+- Kept loaded evidence rows visible while the frontend polls scan progress,
+  then refreshed once at terminal completion.
+- Updated the broader frontend-finalize/evidence-rescan contract test for the
+  asynchronous API.
+
+### Current Status
+- Commits: `fb403be0e`, `98116e655`, `58dd5e285`.
+- Evidence backend combined suite: 88 passed.
+- Evaluator/replay frontend suite: 78 passed; TypeScript/Vite build passed.
+- A4000 display runtime: POST returned in 10 ms; 316 sessions processed,
+  313 skipped, 0 reingested; health stayed 9-13 ms and session list 14-48 ms.
+- Headless browser retained indexed rows, showed progress, and never rendered
+  `Loading evidence` during scan.
+
+### Handoff Notes
+- Display backend runs from `.worktrees/evidence-rescan-background` on 18001;
+  PM2 frontend runs from the same worktree on 5174.
+- Three incomplete `m5-design-grounding` evidence manifests report JSON parse
+  errors but do not block the remaining scan; they require separate artifact
+  cleanup if those sessions should be indexed.
+- `codex-gnc-validation` M5 containers were not restarted or reconfigured;
+  all restart counts remain zero and their 18000/18765/3000 listeners remain.
+- Branch is committed locally only; no push or merge performed.
+
+---
+
+## [2026-07-20] Codex / `c8774109e` / Evidence Library Server Pagination
+
+### Task Goal
+Remove the hidden Evidence Library result cap, report the real eligible-session
+count, and keep filtering, sorting, replay, deletion, and error handling correct
+across server-backed pages.
+
+### Core Changes
+- Replaced the bounded session-list response with validated server-side paging,
+  exact `total`/`filtered_total`, normalized pages, and global facets.
+- Preserved eligibility checks, deterministic evidence-ID tie-breaking, absolute
+  time ordering, natural numeric text ordering, and canonical UI mode ordering.
+- Moved frontend search, sort, and filters to explicit RTK Query arguments with
+  250 ms search debounce and API-owned totals/pages/facets.
+- Preserved cross-page selection snapshots and replay lookup for records outside
+  the rendered page; synchronized deletion across all cached page/filter keys.
+- Added explicit initial/background query errors and retained failed-page query
+  state while rendering the last fulfilled rows.
+
+### Current Status
+- Commits: `95554fd03`, `12ce710dd`, `06d39ae57`, `a567e0ba2`,
+  `8a6d554af`, `a91561363`, `20ce81259`, `c8774109e`.
+- Backend Evidence Library gate: 124 passed.
+- Frontend Evidence Library, Replay, and SimulationEvaluator gate: 103 passed.
+- TypeScript/Vite production build passed; only existing Foxglove eval and
+  chunk-size warnings remain.
+- Independent final review: PASS, zero Critical/Important/Minor findings.
+- Runtime API on 18001: 313 total and unique healthy sessions, page 1 has 20,
+  page 16 has 13, and `total_pages=16`; an independently counted worktree
+  filter matched `filtered_total=1`.
+- Headless browser on 5174 showed `记录数: 313`, `显示: 313`, 20 rows per page,
+  navigated 1/16 to 2/16, then reset to page 1 after search.
+
+### Handoff Notes
+- Runtime source: `.worktrees/evidence-rescan-background`, branch
+  `codex/evidence-rescan-background`; backend container
+  `l3-tdl-sil-orchestrator-1`, frontend PM2 process `l3-tdl-frontend`.
+- The `codex-gnc-validation` M5 stack was not restarted or reconfigured. All six
+  containers retained their original `StartedAt` values and restart count zero;
+  listeners 18000, 18765, and 3000 remained intact. Feature listeners are 18001
+  and 5174.
+- Branch remains local; no merge or push performed.

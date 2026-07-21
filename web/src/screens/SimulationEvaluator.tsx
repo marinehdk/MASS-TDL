@@ -9,6 +9,7 @@ import {
   useGetEvidenceReplayQuery,
   useGetDecisionFrameQuery,
 } from '../api/silApi';
+import type { EvidenceLibrarySessionsQuery } from '../api/silApi';
 import { useScenarioStore } from '../store';
 import { TimelineSixLane } from './shared/TimelineSixLane';
 import { AsdrLedger } from './shared/AsdrLedger';
@@ -28,6 +29,14 @@ interface KpiCardProps {
 interface SimulationEvaluatorProps {
   evidenceId?: string;
 }
+
+const evidenceMetadataQuery = (evidenceId: string): EvidenceLibrarySessionsQuery => ({
+  page: 1,
+  page_size: 20,
+  ...(evidenceId === 'latest' ? {} : { search: evidenceId }),
+  sort_key: 'time',
+  sort_direction: 'desc',
+});
 
 function KpiCard({ label, value, unit }: KpiCardProps) {
   return (
@@ -51,7 +60,7 @@ export function SimulationEvaluator({ evidenceId }: SimulationEvaluatorProps) {
 }
 
 function ReplayDetailRoute({ evidenceId }: { evidenceId: string }) {
-  const { data, isLoading } = useGetEvidenceLibrarySessionsQuery();
+  const { data, isLoading } = useGetEvidenceLibrarySessionsQuery(evidenceMetadataQuery(evidenceId));
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
   const session = evidenceId === 'latest'
     ? data?.sessions?.[0]
@@ -90,7 +99,7 @@ function SimulationEvaluatorDetail({ evidenceId }: { evidenceId: string }) {
   const storeRunId = useScenarioStore((s) => s.runId);
   const { data: scoring, refetch } = useGetLastRunScoringQuery();
   const { data: asdrData } = useGetAsdrEventsQuery();
-  const { data: evidenceLibrary } = useGetEvidenceLibrarySessionsQuery();
+  const { data: evidenceLibrary } = useGetEvidenceLibrarySessionsQuery(evidenceMetadataQuery(evidenceId));
   const reportEvents = asdrData?.events ?? [];
   const asdrLedgerEvents = asdrData?.ledger ?? [];
   const runId = storeRunId || scoring?.run_id || scenarioId || 'latest';
